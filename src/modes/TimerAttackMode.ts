@@ -222,7 +222,8 @@ class TimerAttackMode {
       timerDisplay.id = 'timer-attack-display';
       timerDisplay.className = 'timer-attack-display normal';
       timerDisplay.textContent = `${this.timeLimit / 60}:00.0`;
-      document.body.appendChild(timerDisplay);
+      const hud = document.getElementById('hud-overlay');
+      (hud || document.body).appendChild(timerDisplay);
     }
     timerDisplay.style.display = 'block';
 
@@ -233,7 +234,8 @@ class TimerAttackMode {
       modeBadge.id = 'timer-mode-badge';
       modeBadge.className = 'timer-mode-badge';
       modeBadge.innerHTML = 'TIMER ATTACK';
-      document.body.appendChild(modeBadge);
+      const hud = document.getElementById('hud-overlay');
+      (hud || document.body).appendChild(modeBadge);
     }
     modeBadge.style.display = 'block';
   }

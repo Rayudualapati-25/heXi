@@ -11,6 +11,7 @@ import { MAX_LIVES } from '@core/constants';
 import { SpecialPointsSystem } from '@systems/SpecialPointsSystem';
 import type { InventoryUI } from '@ui/hud/InventoryUI';
 import { appwriteClient } from '@network/AppwriteClient';
+import { ThemeName, themes, themePrices } from '@config/themes';
 
 export interface ShopModalOptions {
   mode: 'menu' | 'game';
@@ -26,6 +27,7 @@ export class ShopModal {
   private pointsLabel: HTMLSpanElement;
   private messageLabel: HTMLParagraphElement;
   private itemsContainer: HTMLDivElement;
+  private themesContainer: HTMLDivElement | null = null;
 
   constructor(options: ShopModalOptions) {
     this.options = options;
@@ -71,8 +73,25 @@ export class ShopModal {
     this.content.appendChild(this.messageLabel);
     this.content.appendChild(this.itemsContainer);
 
+    if (this.options.mode === 'menu') {
+      const themesHeader = document.createElement('div');
+      themesHeader.className = 'pt-2 border-t border-gray-200';
+
+      const themesTitle = document.createElement('h3');
+      themesTitle.className = 'text-sm font-semibold text-gray-900';
+      themesTitle.textContent = 'Themes';
+      themesHeader.appendChild(themesTitle);
+
+      this.themesContainer = document.createElement('div');
+      this.themesContainer.className = 'grid gap-3 sm:grid-cols-2';
+
+      this.content.appendChild(themesHeader);
+      this.content.appendChild(this.themesContainer);
+    }
+
     this.modal.setContent(this.content);
     this.renderItems();
+    this.renderThemes();
   }
 
   public open(): void {
@@ -208,6 +227,7 @@ export class ShopModal {
   private refresh(): void {
     this.pointsLabel.textContent = this.getPoints().toString();
     this.renderItems();
+    this.renderThemes();
   }
 
   private setMessage(message: string, isError: boolean): void {
@@ -254,6 +274,137 @@ export class ShopModal {
     }
 
     return wrapper;
+  }
+
+  private renderThemes(): void {
+    const themesContainer = this.themesContainer;
+    if (!themesContainer) {
+      return;
+    }
+
+    themesContainer.innerHTML = '';
+
+    Object.values(themes).forEach((theme) => {
+      const card = document.createElement('div');
+      card.className = 'border border-gray-200 rounded-xl p-4 space-y-3 bg-white';
+
+      const titleRow = document.createElement('div');
+      titleRow.className = 'flex items-center justify-between';
+
+      const title = document.createElement('div');
+      title.className = 'text-base font-bold text-gray-900';
+      title.textContent = theme.name;
+
+      const swatch = document.createElement('div');
+      swatch.className = 'flex gap-1';
+      theme.colors.blocks.slice(0, 4).forEach((color) => {
+        const dot = document.createElement('span');
+        dot.className = 'w-3 h-3 rounded-full border border-gray-200';
+        dot.style.backgroundColor = color;
+        swatch.appendChild(dot);
+      });
+
+      titleRow.appendChild(title);
+      titleRow.appendChild(swatch);
+
+      const description = document.createElement('p');
+      description.className = 'text-xs text-gray-600';
+      description.textContent = theme.description;
+
+      const footer = document.createElement('div');
+      footer.className = 'flex items-center justify-between gap-2';
+
+      const cost = document.createElement('span');
+      cost.className = 'text-sm font-semibold text-gray-900';
+      cost.textContent = `💎 ${this.getThemeCost(theme.id)}`;
+
+      const action = this.getThemeAction(theme.id);
+      const button = new Button(action.label, {
+        variant: action.disabled ? 'outline' : 'primary',
+        size: 'small',
+        disabled: action.disabled,
+        onClick: () => this.handleThemeAction(theme.id),
+      });
+
+      footer.appendChild(cost);
+      footer.appendChild(button.element);
+
+      card.appendChild(titleRow);
+      card.appendChild(description);
+      card.appendChild(footer);
+
+      if (action.reason) {
+        const reason = document.createElement('p');
+        reason.className = 'text-[11px] text-gray-500';
+        reason.textContent = action.reason;
+        card.appendChild(reason);
+      }
+
+      themesContainer.appendChild(card);
+    });
+  }
+
+  private getThemeCost(themeId: ThemeName): number {
+    return themePrices[themeId] ?? 0;
+  }
+
+  private getThemeAction(themeId: ThemeName): { label: string; disabled: boolean; reason?: string } {
+    const player = stateManager.getState().player;
+    const isUnlocked = player.themesUnlocked.includes(themeId);
+    const isSelected = player.selectedTheme === themeId;
+
+    if (isSelected) {
+      return { label: 'EQUIPPED', disabled: true };
+    }
+
+    if (isUnlocked) {
+      return { label: 'EQUIP', disabled: false };
+    }
+
+    const cost = this.getThemeCost(themeId);
+    if (player.specialPoints < cost) {
+      return { label: 'LOCKED', disabled: true, reason: 'Not enough diamonds.' };
+    }
+
+    return { label: 'UNLOCK', disabled: false };
+  }
+
+  private async handleThemeAction(themeId: ThemeName): Promise<void> {
+    const player = stateManager.getState().player;
+    const isUnlocked = player.themesUnlocked.includes(themeId);
+    const isSelected = player.selectedTheme === themeId;
+
+    if (isSelected) {
+      return;
+    }
+
+    if (!isUnlocked) {
+      const cost = this.getThemeCost(themeId);
+      if (!this.pointsSystem.spendPoints(cost)) {
+        this.setMessage('Not enough diamonds.', true);
+        this.refresh();
+        return;
+      }
+
+      const updatedThemes = [...player.themesUnlocked, themeId];
+      stateManager.updatePlayer({ themesUnlocked: updatedThemes, selectedTheme: themeId });
+
+      if (player.id) {
+        void appwriteClient.updateThemes(player.id, updatedThemes, themeId);
+      }
+
+      this.setMessage('Theme unlocked and equipped.', false);
+      this.refresh();
+      return;
+    }
+
+    stateManager.updatePlayer({ selectedTheme: themeId });
+    if (player.id) {
+      void appwriteClient.updateSelectedTheme(player.id, themeId);
+    }
+
+    this.setMessage('Theme equipped.', false);
+    this.refresh();
   }
 
   private getInventoryCount(itemId: ShopItemId): number {

@@ -10,15 +10,19 @@ import { Router } from '@/router';
 import { stateManager } from '@core/StateManager';
 import { ROUTES, GameStatus } from '@core/constants';
 import { appwriteClient } from '@network/AppwriteClient';
+import { GroupManager } from '@network/GroupManager';
 import { LeaderboardModal } from '@ui/modals/LeaderboardModal';
 import { ShopModal } from '@ui/modals/ShopModal';
 import { authService } from '@services/AuthService';
+import { GroupLeaderboardModal } from '@ui/modals/GroupLeaderboardModal';
+import type { Group } from '@/types/game';
 
 export class MenuPage extends BasePage {
   private buttons: Button[] = [];
   private diamondCountEl: HTMLDivElement | null = null;
   private unsubscribeSpecialPoints: (() => void) | null = null;
   private shopModal: ShopModal | null = null;
+  private groupManager = new GroupManager();
 
   public render(): void {
     // Modern black and white background with scroll
@@ -332,17 +336,82 @@ export class MenuPage extends BasePage {
   private async showLeaderboard(): Promise<void> {
     const state = stateManager.getState();
 
-    const [globalEntries, timerEntries] = await Promise.all([
+    const groupPromise = state.player.id
+      ? this.groupManager.getUserGroups(state.player.id)
+      : Promise.resolve([]);
+
+    const [globalEntries, timerEntries, groups] = await Promise.all([
       appwriteClient.getGlobalLeaderboard(100),
       appwriteClient.getTimerAttackLeaderboard(100),
+      groupPromise,
     ]);
 
     const modal = new LeaderboardModal({
       globalEntries,
       timerEntries,
+      groups,
       currentPlayerName: state.player.name,
+      onOpenGroup: (group) => {
+        void this.openGroupLeaderboard(group);
+      },
     });
 
+    modal.open();
+  }
+
+  private async openGroupLeaderboard(group: Group): Promise<void> {
+    const scores = await this.groupManager.getGroupLeaderboard(group.$id);
+
+    const modal = new GroupLeaderboardModal({
+      group,
+      scores,
+      currentUserId: stateManager.getState().player.id,
+      onLeave: () => this.confirmLeaveGroup(group),
+    });
+
+    modal.open();
+  }
+
+  private confirmLeaveGroup(group: Group): void {
+    const modal = new Modal({
+      title: 'Leave Group',
+      closeOnBackdrop: true,
+      closeOnEscape: true,
+    });
+
+    const content = document.createElement('div');
+    content.className = 'space-y-4';
+
+    const text = document.createElement('p');
+    text.className = 'text-sm text-gray-700';
+    text.textContent = `Leave ${group.groupName}?`;
+    content.appendChild(text);
+
+    const leaveBtn = new Button('Leave', {
+      variant: 'ghost',
+      size: 'small',
+      fullWidth: true,
+      onClick: async () => {
+        const state = stateManager.getState();
+        if (!state.player.id) return;
+
+        await this.groupManager.leaveGroup(state.player.id, group.$id);
+        modal.close();
+      },
+    });
+    this.buttons.push(leaveBtn);
+    content.appendChild(leaveBtn.element);
+
+    const cancelBtn = new Button('Cancel', {
+      variant: 'outline',
+      size: 'small',
+      fullWidth: true,
+      onClick: () => modal.close(),
+    });
+    this.buttons.push(cancelBtn);
+    content.appendChild(cancelBtn.element);
+
+    modal.setContent(content);
     modal.open();
   }
 

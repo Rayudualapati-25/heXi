@@ -1,8 +1,8 @@
 # 🎯 Hextris Implementation TODO
 
 **Last Updated:** February 8, 2026  
-**Overall Completion:** 75-80%  
-**Status:** Core features implemented, Power-up systems and cleanup needed
+**Overall Completion:** 85-90%  
+**Status:** Core features implemented, theme expansion + UX polish in progress
 
 ---
 
@@ -14,10 +14,27 @@
 | HUD Integration | 90% ✅ | COMPLETE |
 | Multiplayer Groups | 85% ✅ | COMPLETE |
 | Game Modes | 90% ✅ | COMPLETE |
-| Life System | 75% ⚠️ | NEEDS TESTING |
-| Power-Up Systems | 10% ❌ | **CRITICAL BLOCKER** |
-| Polish & Features | 40% ⚠️ | INCOMPLETE |
-| Cleanup Tasks | 50% ⚠️ | IN PROGRESS |
+| Life System | 100% ✅ | COMPLETE |
+| Power-Up Systems | 95% ✅ | COMPLETE |
+| Polish & Features | 60% ⚠️ | IN PROGRESS |
+| Cleanup Tasks | 90% ✅ | COMPLETE |
+
+---
+
+## 🔍 Repo Re-Verification Summary (Feb 8, 2026)
+
+**Findings that need updates:**
+- [ ] Update README to remove Socket.io references and EntryPage mentions, and reflect Appwrite-only multiplayer
+- [ ] Remove or integrate legacy theme system (`src/config/ThemeConfig.ts`, `src/managers/ThemeManager.ts`) into the current `themes.ts` flow
+- [ ] Make Settings page respect locked themes (`themesUnlocked`) and persist selection to Appwrite
+- [ ] Ensure theme selection applies to game visuals beyond block colors (background/hex/text where applicable)
+- [ ] Document timer attack scoring + leaderboard flow (timer attack scores currently stored in `timerAttackBest`)
+- [ ] Add clear UI copy in Leaderboard/Group screens about how group scores are recorded (only when playing via "Play In Group")
+- [ ] Align UI z-index layering so timer HUD, modals, and in-game HUD never overlap incorrectly on mobile
+
+**Documentation drift:**
+- [ ] README project structure lists `EntryPage.ts` and Socket.io; needs correction
+- [ ] README features claim “real-time Socket.io rooms” which is no longer true
 
 ---
 
@@ -26,9 +43,7 @@
 ### 🔴 BLOCKER #1: Power-Up & Special Points Systems Excluded from Build
 
 **Current Issue:**
-- `src/systems/PowerUpSystem.ts` and `src/systems/SpecialPointsSystem.ts` are excluded in `tsconfig.json`
-- Both files are written as JavaScript classes, not TypeScript
-- Cannot be compiled or used in the game
+- Resolved: Power-up + special points systems are now included, wired, and tested
 
 **Files Affected:**
 - `tsconfig.json` (lines 36-39)
@@ -48,11 +63,11 @@
   - Type all methods and properties
   - Remove browser-only globals (window.gameState, etc.)
   - Export class properly
-- [ ] Convert `SpecialPointsSystem.ts` to proper TypeScript:
+- [x] Convert `SpecialPointsSystem.ts` to proper TypeScript:
   - Add proper types
   - Connect to state manager
   - Integrate with PointsDisplay HUD
-- [ ] Integrate Power-Ups into GamePage:
+- [x] Integrate Power-Ups into GamePage:
   - Import PowerUpSystem
   - Initialize in `initCanvas()`
   - Update in game loop
@@ -60,24 +75,22 @@
   - Add event listeners for collection/usage
   - Connect to InventoryUI
   - Implement power-up effects
-- [ ] Test power-up spawning and collection
-- [ ] Test inventory system
-- [ ] Test power-up activation
+- [x] Test power-up spawning and collection
+- [x] Test inventory system
+- [x] Test power-up activation
 
-**Priority:** 🔴 CRITICAL - Blocks major gameplay feature
+**Priority:** ✅ RESOLVED
 
 ---
 
 ### 🔴 BLOCKER #2: Environment Configuration Missing
 
 **Current Issue:**
-- No `.env` file found in root directory
-- Cannot connect to Appwrite without configuration
-- Application will fail on authentication attempts
+- Resolved: Appwrite environment and project configuration completed
 
 **Tasks:**
-- [ ] Create `.env` file in project root
-- [ ] Add Appwrite configuration:
+- [x] Create `.env` file in project root
+- [x] Add Appwrite configuration:
   ```env
   # Appwrite Configuration
   VITE_APPWRITE_ENDPOINT=https://cloud.appwrite.io/v1
@@ -87,42 +100,40 @@
   VITE_APPWRITE_GROUPS_COLLECTION_ID=groups_collection_id
   VITE_APPWRITE_GROUPSCORES_COLLECTION_ID=groupscores_collection_id
   ```
-- [ ] Verify Appwrite project is created
-- [ ] Verify Email/Password authentication is enabled in Appwrite Console
-- [ ] Verify email service is configured (for password recovery)
-- [ ] Create database and collections in Appwrite:
-  - [ ] `users` collection with proper schema
-  - [ ] `groups` collection with proper schema
-  - [ ] `groupScores` collection with proper schema
-- [ ] Set up indexes on collections
-- [ ] Configure collection permissions (authenticated users can read/write)
-- [ ] Update `.env` with real IDs
+- [x] Verify Appwrite project is created
+- [x] Verify Email/Password authentication is enabled in Appwrite Console
+- [x] Verify email service is configured (for password recovery)
+- [x] Create database and collections in Appwrite:
+  - [x] `users` collection with proper schema
+  - [x] `groups` collection with proper schema
+  - [x] `groupScores` collection with proper schema
+- [x] Set up indexes on collections
+- [x] Configure collection permissions (authenticated users can read/write)
+- [x] Update `.env` with real IDs
 - [x] Add `.env` to `.gitignore` (if not already)
-- [ ] Create `.env.example` for documentation
+- [x] Create `.env.example` for documentation
 
-**Priority:** 🔴 CRITICAL - Blocks authentication and data persistence
+**Priority:** ✅ RESOLVED
 
 ---
 
 ### 🔴 BLOCKER #3: Socket.io Infrastructure Still Present
 
 **Current Issue:**
-- `server/` directory still exists with full Express + Socket.io server
-- `socket.io-client` dependency still in `package.json`
-- Real-time multiplayer code needs removal (replaced with Appwrite groups)
+- Resolved: Socket.io infrastructure removed and no client references remain
 
 **Files to Delete:**
 - [x] Delete entire `server/` directory (not present in repo)
 - [x] Remove `socket.io-client` from `package.json` dependencies
 - [x] Run `pnpm install` to update lockfile
 - [x] Check for any Socket.io imports in client code
-- [ ] Remove or refactor `src/network/MultiplayerClient.ts` if it uses Socket.io
+- [x] Remove or refactor `src/network/MultiplayerClient.ts` if it uses Socket.io
 
 **Files Already Removed (Good!):**
 - ✅ `render.yaml` (deployment config for Socket.io server)
 - ✅ Various documentation files (CLEANUP-SUMMARY.md, etc.)
 
-**Priority:** 🟡 HIGH - Cleanup reduces confusion and bundle size
+**Priority:** ✅ RESOLVED
 
 ---
 
@@ -247,16 +258,16 @@
   - ✅ Checks for currentGroupId in state
 
 **❌ Missing Components:**
-- [ ] Create `src/ui/modals/GroupLeaderboardModal.ts`:
-  - [ ] Show group name and room code
-  - [ ] List all members with best scores
-  - [ ] Highlight current user
-  - [ ] Show rank, name, score
-  - [ ] "Copy Room Code" button
-  - [ ] "Leave Group" button
-  - [ ] Close button
-  - [ ] Style with rankings (gold/silver/bronze for top 3)
-  - [ ] Add copy-to-clipboard functionality
+- [x] Create `src/ui/modals/GroupLeaderboardModal.ts`:
+  - [x] Show group name and room code
+  - [x] List all members with best scores
+  - [x] Highlight current user
+  - [x] Show rank, name, score
+  - [x] "Copy Room Code" button
+  - [x] "Leave Group" button
+  - [x] Close button
+  - [x] Style with rankings (gold/silver/bronze for top 3)
+  - [x] Add copy-to-clipboard functionality
 
 ---
 
@@ -306,56 +317,62 @@
   - ✅ `LIFE_BONUS_INTERVAL = 5000` in constants.ts
 
 **⚠️ Needs Implementation/Verification:**
-- [ ] Verify bonus life award every 5000 points:
-  - [ ] Check if milestone tracking exists in GamePage
-  - [ ] Check if life is awarded at milestones
-  - [ ] Check if max lives cap (5) is enforced
-  - [ ] Check if "+1 LIFE" floating text appears
-- [ ] Verify `clearBlocksAndRestart()` method:
-  - [ ] Should clear blocks on life loss
-  - [ ] Should NOT restart entire game
-  - [ ] Should keep score and continue
-- [ ] Add invulnerability period after life loss
-  - [ ] Use `INVULNERABILITY_DURATION = 2000` from constants
+- [x] Verify bonus life award every 5000 points:
+  - [x] Check if milestone tracking exists in GamePage
+  - [x] Check if life is awarded at milestones
+  - [x] Check if max lives cap (5) is enforced
+  - [x] Check if "+1 LIFE" floating text appears
+- [x] Verify `clearBlocksAndRestart()` method:
+  - [x] Should clear blocks on life loss
+  - [x] Should NOT restart entire game
+  - [x] Should keep score and continue
+- [x] Add invulnerability period after life loss
+  - [x] Use `INVULNERABILITY_DURATION = 2000` from constants
   - [ ] Visual indicator (flash/pulse effect)
-- [ ] Test full life cycle:
-  - [ ] Start with 3 lives
-  - [ ] Lose a life -> clear blocks, continue
-  - [ ] Earn bonus life at 5000 points
-  - [ ] Lose final life -> game over
+- [x] Test full life cycle:
+  - [x] Start with 3 lives
+  - [x] Lose a life -> clear blocks, continue
+  - [x] Earn bonus life at 5000 points
+  - [x] Lose final life -> game over
 
 ---
 
 ## ⚠️ INCOMPLETE FEATURES (Need Implementation)
 
-### 🟠 Priority 7: Polish & Features (40% Complete)
+### 🟠 Priority 7: Polish & Features (60% Complete)
 
-#### 7.1 - Shop System (0% Complete)
+#### 7.1 - Shop System (70% Complete)
 
-**Status:** ❌ Not Started
+**Status:** ⚠️ In Progress
 
 **Tasks:**
 - [ ] Create `src/pages/ShopPage.ts`:
-  - [ ] Show available themes with preview
-  - [ ] Display price in diamonds
-  - [ ] Show "Unlock" button if not owned
-  - [ ] Show "Select" button if owned
-  - [ ] Show current diamonds balance
-  - [ ] Disable button if insufficient diamonds
-  - [ ] Connect to `src/config/shopItems.ts`
+  - [x] Show available themes with preview
+  - [x] Display price in diamonds
+  - [x] Show "Unlock" button if not owned
+  - [x] Show "Select" button if owned
+  - [x] Show current diamonds balance
+  - [x] Disable button if insufficient diamonds
+  - [x] Connect to `src/config/shopItems.ts`
 - [x] Or create `src/ui/modals/ShopModal.ts` (alternative)
-- [ ] Implement unlock logic:
-  - [ ] Deduct diamonds from user account
-  - [ ] Add theme to themesUnlocked array
-  - [ ] Update Appwrite user document
-  - [ ] Update local state
-  - [ ] Show success message
+- [x] Implement unlock logic:
+  - [x] Deduct diamonds from user account
+  - [x] Add theme to themesUnlocked array
+  - [x] Update Appwrite user document
+  - [x] Update local state
+  - [x] Show success message
 - [x] Add Shop button to MenuPage
 - [x] Wire Continue Game into game-over modal flow
-- [x] Add dev-only power-up spawn button (debug)
+- [x] Remove dev-only power-up spawn button (debug)
 - [ ] Add SHOP route to constants
 - [ ] Register route in main.ts
 - [ ] Test full purchase flow
+
+**Theme integration gaps:**
+- [ ] SettingsPage: hide or lock themes not in `themesUnlocked`
+- [ ] SettingsPage: persist selected theme to Appwrite
+- [ ] Apply theme backgrounds and text colors outside canvas (menu/settings/shop)
+- [ ] Theme asset pipeline (icons/backgrounds) for premium themes
 
 **Files to Create:**
 - `src/pages/ShopPage.ts` OR `src/ui/modals/ShopModal.ts`
@@ -406,9 +423,9 @@
 
 ---
 
-#### 7.3 - Global Leaderboard Enhancements (75% Complete)
+#### 7.3 - Global Leaderboard Enhancements (95% Complete)
 
-**Status:** ⚠️ Partially Complete
+**Status:** ⚠️ In Progress
 
 **What Exists:**
 - ✅ `src/ui/modals/LeaderboardModal.ts` exists
@@ -416,22 +433,25 @@
 - ✅ MenuPage calls leaderboard modal
 
 **Tasks:**
-- [ ] Verify LeaderboardModal features:
-  - [ ] Two tabs: "Global" and "My Groups"
-  - [ ] Global tab shows top 100 players
-  - [ ] Pagination (20 players per page)
-  - [ ] Current user highlighted
-  - [ ] My Groups tab shows user's groups
-  - [ ] Click group to view group leaderboard
-- [ ] Add filtering options:
-  - [ ] Filter by difficulty (Easy/Medium/Hard)
-  - [ ] Filter by time period (Today/Week/All Time)
-- [ ] Add user search functionality
+- [x] Verify LeaderboardModal features:
+  - [x] Tabs: "Global", "Timer Attack", "My Groups"
+  - [x] Global tab shows top players
+  - [x] Pagination (10/20/50 per page)
+  - [x] Current user highlighted
+  - [x] My Groups tab shows user's groups
+  - [x] Click group to view group leaderboard
+- [x] Add filtering options (Top 10/50/100)
+- [x] Add user search functionality
 - [ ] Test with large dataset (100+ players)
+
+**Missing scoreboard data fixes:**
+- [ ] Verify Timer Attack scores appear in Timer tab after a run
+- [ ] Verify group scores appear only after using "Play In Group"
+- [ ] Add empty-state helper text in Leaderboard modal for Timer tab when no scores exist
 
 ---
 
-## 🗑️ CLEANUP TASKS (50% Complete)
+## 🗑️ CLEANUP TASKS (90% Complete)
 
 ### Cleanup #1: Remove Socket.io Server (Critical)
 
@@ -446,7 +466,7 @@
 - [x] Run `pnpm install` to update lockfile
 - [x] Search codebase for Socket.io imports:
   - `grep -r "socket.io" src/`
-- [ ] Refactor or delete `src/network/MultiplayerClient.ts`:
+- [x] Refactor or delete `src/network/MultiplayerClient.ts`:
   - If it uses Socket.io, replace with GroupManager
   - Or delete if no longer needed
 
@@ -498,6 +518,70 @@
 - [x] Run `npx depcheck` to find unused dependencies
 - [x] Review and remove unused packages
 - [ ] Update documentation if needed
+
+---
+
+## 🎨 Theme Implementation Plan (Phase: Premium Themes)
+
+**Goal:** Add premium themes (Spider/Barbie/Esports-style) with safe naming, consistent UI treatment, and persistent unlock/equip flows.
+
+**Naming & IP safety (recommended):**
+- Use non-IP names (e.g., `web-hero`, `fashion-pink`, `arena-neon`) while keeping the intended vibe
+- Avoid brand logos, direct references, or copyrighted iconography
+
+**Theme scope checklist:**
+- [ ] Palette: 4 block colors, hex fill/stroke, UI text, background, accent
+- [ ] UI surfaces: menus/modals/cards reflect the theme (optional toggle for "theme UI")
+- [ ] HUD visibility: ensure timer, lives, score, and points remain readable
+- [ ] Audio/particles (optional): map to theme config only if assets exist
+- [ ] Shop cards: add preview swatches + price
+- [ ] Settings grid: show lock state + equip state
+- [ ] Persistence: unlock + select stored in Appwrite and restored on session load
+
+**Theme packs (initial set):**
+- [ ] Web Hero (Spider-inspired): red/blue/white with web-like accent
+- [ ] Fashion Pink (Barbie-inspired): hot pink + blush + white + gold
+- [ ] Esports Neon: dark slate + cyan + magenta + acid green
+- [ ] Retro Arcade: deep navy + electric orange + mint + neon yellow
+
+**Implementation order:**
+1) Add theme entries to `themes.ts` + pricing
+2) Wire lock/equip logic in Settings + Shop
+3) Apply global theme tokens (background/text) to core pages
+4) Add optional VFX (particles/sfx) per theme
+5) QA: readability + contrast on mobile/desktop
+
+---
+
+## 🧭 UI/UX Layout Structure (Responsive, Clean)
+
+**App shell:**
+- [ ] Single-column layout with max width (menu/settings/modals)
+- [ ] Sticky top system for HUD overlays inside game screen
+- [ ] Consistent padding scale: 12/16/24/32 for mobile/desktop
+
+**Page layout patterns:**
+- [ ] Menu: hero title + stats row + mode grid + utility actions row
+- [ ] Difficulty: back button + header + 3-card grid + primary CTA
+- [ ] Multiplayer: header + tabs + card list + consistent action rows
+- [ ] Settings: section cards with 2/3/4 column responsive grids
+- [ ] Shop modal: two-column cards, collapses to single column on mobile
+
+**Component behavior:**
+- [ ] Buttons: primary/secondary/outline/ghost; size ladder (small/medium/large)
+- [ ] Cards: consistent border radius + shadow; hover scale only on desktop
+- [ ] Modals: max width per content size; scrollable body; safe-top/bottom
+- [ ] HUD: pointer-events rules; z-index layering: HUD > modals > canvas
+
+**Responsive rules:**
+- [ ] Mobile-first: single column, 48px touch targets, safe-area padding
+- [ ] Tablet: 2-column grids where possible; reduced motion on low-end devices
+- [ ] Desktop: 2-3 column grids, larger typography, controlled max width
+
+**Accessibility polish:**
+- [ ] Color contrast check for all themes (minimum 4.5:1 for text)
+- [ ] Focus states for interactive elements
+- [ ] Reduced motion option respects animations
 
 ---
 
@@ -710,25 +794,25 @@
 
 ### Power-Up Tests (After Implementation)
 
-- [ ] **Power-Up Spawning:**
-  - [ ] Play game
-  - [ ] Achieve 10+ combo
-  - [ ] Verify power-up spawns
-  - [ ] Verify power-up falls like block
+- [x] **Power-Up Spawning:**
+  - [x] Play game
+  - [x] Reach score milestones (+100)
+  - [x] Verify power-up spawns
+  - [x] Verify power-up falls like block
 
-- [ ] **Power-Up Collection:**
-  - [ ] Move to collect power-up
-  - [ ] Verify added to inventory (HUD)
-  - [ ] Verify max 3 power-ups
+- [x] **Power-Up Collection:**
+  - [x] Move to collect power-up
+  - [x] Verify added to inventory (HUD)
+  - [x] Verify max 3 power-ups
 
-- [ ] **Power-Up Usage:**
-  - [ ] Click power-up in inventory
-  - [ ] Verify effect applied
-  - [ ] Verify power-up removed from inventory
+- [x] **Power-Up Usage:**
+  - [x] Click power-up in inventory
+  - [x] Verify effect applied
+  - [x] Verify power-up removed from inventory
 
-- [ ] **Power-Up Types:**
-  - [ ] Test each power-up type
-  - [ ] Verify effects work as expected
+- [x] **Power-Up Types:**
+  - [x] Test each power-up type
+  - [x] Verify effects work as expected
 
 ---
 
@@ -943,8 +1027,8 @@
 ### Sprint 2: Missing Features (Est. 2-3 days)
 - [ ] Implement Shop System
 - [ ] Implement Audio System
-- [ ] Create GroupLeaderboardModal
-- [ ] Verify and fix life system bonuses
+- [x] Create GroupLeaderboardModal
+- [x] Verify and fix life system bonuses
 - [ ] Test all game modes
 
 ### Sprint 3: Polish & Testing (Est. 2-3 days)

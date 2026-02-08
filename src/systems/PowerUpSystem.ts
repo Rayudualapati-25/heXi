@@ -5,7 +5,7 @@
 
 import { Canvas } from '@core/Canvas';
 import { stateManager } from '@core/StateManager';
-import { GameStatus, POWER_UP_COMBO_THRESHOLD, POWER_UP_SPAWN_COOLDOWN } from '@core/constants';
+import { GameStatus, POWER_UP_SCORE_INTERVAL } from '@core/constants';
 import type { Hex } from '@entities/Hex';
 import { PowerUp, PowerUpType } from '@entities/PowerUp';
 import type { InventoryUI } from '@ui/hud/InventoryUI';
@@ -28,7 +28,7 @@ export class PowerUpSystem {
   private canvas: Canvas;
   private inventoryUI: InventoryUI;
   private activePowerUps: PowerUp[] = [];
-  private lastSpawnTime = 0;
+  private lastScoreBucket = 0;
   private enabled = true;
   private onUse?: PowerUpUseHandler;
   private onSlowMo?: SlowMoHandler;
@@ -73,7 +73,7 @@ export class PowerUpSystem {
 
   public reset(): void {
     this.activePowerUps = [];
-    this.lastSpawnTime = 0;
+    this.lastScoreBucket = 0;
     this.inventoryUI.clear();
   }
 
@@ -84,20 +84,32 @@ export class PowerUpSystem {
   }
 
   public destroy(): void {
-    window.removeEventListener('comboAchieved', this.handleComboAchieved as EventListener);
+    window.removeEventListener('scoreUpdate', this.handleScoreUpdate as EventListener);
     window.removeEventListener('powerup-used', this.handlePowerUpUsed as EventListener);
   }
 
   private init(): void {
-    window.addEventListener('comboAchieved', this.handleComboAchieved as EventListener);
+    window.addEventListener('scoreUpdate', this.handleScoreUpdate as EventListener);
     window.addEventListener('powerup-used', this.handlePowerUpUsed as EventListener);
   }
 
-  private handleComboAchieved = (event: Event): void => {
-    const customEvent = event as CustomEvent<{ count?: number }>;
-    const comboCount = customEvent.detail?.count ?? 0;
-    if (comboCount >= POWER_UP_COMBO_THRESHOLD) {
-      this.trySpawnPowerUp();
+  private handleScoreUpdate = (event: Event): void => {
+    const customEvent = event as CustomEvent<{ score?: number }>;
+    const score = customEvent.detail?.score ?? 0;
+    if (stateManager.getState().status !== GameStatus.PLAYING) {
+      return;
+    }
+
+    const bucket = Math.floor(score / POWER_UP_SCORE_INTERVAL);
+    if (bucket <= this.lastScoreBucket) {
+      return;
+    }
+
+    const spawnsToAdd = bucket - this.lastScoreBucket;
+    this.lastScoreBucket = bucket;
+
+    for (let i = 0; i < spawnsToAdd; i += 1) {
+      this.spawnPowerUp();
     }
   };
 
@@ -112,20 +124,6 @@ export class PowerUpSystem {
       this.onUse(type);
     }
   };
-
-  private trySpawnPowerUp(): void {
-    const now = Date.now();
-    if (now - this.lastSpawnTime < POWER_UP_SPAWN_COOLDOWN) {
-      return;
-    }
-
-    if (stateManager.getState().status !== GameStatus.PLAYING) {
-      return;
-    }
-
-    this.spawnPowerUp();
-    this.lastSpawnTime = now;
-  }
 
   private spawnPowerUp(): void {
     const lane = this.randomInt(0, this.hex.sides);
@@ -188,7 +186,18 @@ export class PowerUpSystem {
     }
 
     if (targetIndex === -1) {
-      return;
+      let maxIndex = -1;
+      for (const lane of lanes) {
+        if (lane.length > 0) {
+          maxIndex = Math.max(maxIndex, lane.length - 1);
+        }
+      }
+
+      if (maxIndex === -1) {
+        return;
+      }
+
+      targetIndex = maxIndex;
     }
 
     let destroyed = 0;

@@ -24,6 +24,7 @@ export const PERFECT_CLEAR_BONUS = 150;
 
 // Power-ups
 export const POWER_UP_SPAWN_COOLDOWN = 30000; // 30 seconds
+export const POWER_UP_SCORE_INTERVAL = 100; // Spawn a power-up every 100 score
 export const POWER_UP_COMBO_THRESHOLD = 10; // Combo required to spawn power-up
 export const MAX_POWER_UP_INVENTORY = 3; // Max power-ups per type
 

@@ -82,6 +82,13 @@ export const themes: Record<ThemeName, Theme> = {
   },
 };
 
+export const themePrices: Record<ThemeName, number> = {
+  [ThemeName.CLASSIC]: 0,
+  [ThemeName.NEON]: 800,
+  [ThemeName.DARK]: 600,
+  [ThemeName.LIGHT]: 400,
+};
+
 /**
  * Get theme by name
  */

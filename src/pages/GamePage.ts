@@ -10,7 +10,7 @@ import { Router } from '@/router';
 import { stateManager } from '@core/StateManager';
 import { GameLoop } from '@core/GameLoop';
 import { Canvas } from '@core/Canvas';
-import { MAX_LIVES, ROUTES, GameStatus } from '@core/constants';
+import { INVULNERABILITY_DURATION, LIFE_BONUS_INTERVAL, MAX_LIVES, ROUTES, GameStatus } from '@core/constants';
 import { Hex } from '@entities/Hex';
 import { Block } from '@entities/Block';
 import { FloatingText } from '@entities/FloatingText';
@@ -66,6 +66,8 @@ export class GamePage extends BasePage {
   private powerUpSpeedMultiplier: number = 1;
   private slowMoTimeoutId: number | null = null;
   private shieldTimeoutId: number | null = null;
+  private invulnerabilityTimeoutId: number | null = null;
+  private nextLifeBonusScore: number = LIFE_BONUS_INTERVAL;
   private blockSettings: any;
   private dailyChallenge: DailyChallengeSystem | null = null;
   private dailyChallengeModal: DailyChallengeModal | null = null;
@@ -88,10 +90,18 @@ export class GamePage extends BasePage {
     this.consumeInventoryItem(type);
   };
 
-  private handleTimerModeTimeUp = (): void => {
+  private handleTimerModeTimeUp = (event: Event): void => {
     if (stateManager.getState().status !== GameStatus.PLAYING) return;
+    const customEvent = event as CustomEvent<{ score?: number }>;
+    const finalScore = customEvent.detail?.score ?? stateManager.getState().game.score;
+    stateManager.updateGame({ score: finalScore });
     stateManager.setState('status', GameStatus.GAME_OVER);
-    stateManager.emit('gameOver', { score: stateManager.getState().game.score, reason: 'timer' });
+    stateManager.emit('gameOver', { score: finalScore, reason: 'timer' });
+
+    const playerId = stateManager.getState().player.id;
+    if (playerId) {
+      void appwriteClient.updateTimerAttackBest(playerId, finalScore);
+    }
   };
 
   public render(): void {
@@ -163,6 +173,7 @@ export class GamePage extends BasePage {
     this.scoreDisplay = new ScoreDisplay(state.game.score);
     this.inventoryUI = new InventoryUI(3);
     this.lastLives = state.game.lives;
+    this.nextLifeBonusScore = LIFE_BONUS_INTERVAL;
 
     this.seedInventorySlots();
     this.applyStoredExtraLives();
@@ -186,19 +197,6 @@ export class GamePage extends BasePage {
     pauseButton.textContent = 'PAUSE (P)';
     pauseButton.onclick = () => this.pauseGame();
     hudContainer.appendChild(pauseButton);
-
-    if (import.meta.env.DEV) {
-      const spawnButton = document.createElement('button');
-      spawnButton.className = `
-        fixed bottom-4 right-4 z-20
-        px-3 py-2 bg-black text-white text-xs font-bold
-        rounded-lg shadow-lg
-        hover:bg-gray-800 transition-all duration-200
-      `;
-      spawnButton.textContent = 'SPAWN POWER-UP';
-      spawnButton.onclick = () => this.powerUpSystem.forceSpawn();
-      hudContainer.appendChild(spawnButton);
-    }
 
     // Initialize game entities
     const centerX = this.canvas.element.width / 2;
@@ -378,6 +376,10 @@ export class GamePage extends BasePage {
       stateManager.updateGame({ score: runningScore });
     }
 
+    if (runningScore >= this.nextLifeBonusScore) {
+      this.applyLifeBonus(runningScore);
+    }
+
     if (diamondsToAdd > 0) {
       this.specialPointsSystem.addPoints(diamondsToAdd);
     }
@@ -437,9 +439,9 @@ export class GamePage extends BasePage {
     
     // Check for game over (original: checks if blocks exceed rows setting)
     if (this.hex.isGameOver(8)) { // Original uses settings.rows which is typically 7-8
-      stateManager.setState('status', GameStatus.GAME_OVER);
-      stateManager.emit('gameOver', { score: state.game.score });
-      window.dispatchEvent(new CustomEvent('gameOver', { detail: { score: state.game.score } }));
+      if (!state.game.isInvulnerable) {
+        this.handleLifeLoss();
+      }
     }
 
     // Update HUD displays
@@ -700,6 +702,7 @@ export class GamePage extends BasePage {
     this.frameCount = 0;
     this.rushMultiplier = 1;
     this.powerUpSpeedMultiplier = 1;
+    this.nextLifeBonusScore = LIFE_BONUS_INTERVAL;
     if (this.slowMoTimeoutId) {
       window.clearTimeout(this.slowMoTimeoutId);
       this.slowMoTimeoutId = null;
@@ -744,6 +747,61 @@ export class GamePage extends BasePage {
       stateManager.updateGame({ isInvulnerable: false });
       this.shieldTimeoutId = null;
     }, durationMs);
+  }
+
+  private applyLifeBonus(score: number): void {
+    const state = stateManager.getState();
+    if (state.game.lives >= MAX_LIVES) {
+      this.nextLifeBonusScore = Math.ceil(score / LIFE_BONUS_INTERVAL) * LIFE_BONUS_INTERVAL + LIFE_BONUS_INTERVAL;
+      return;
+    }
+
+    let livesToAdd = 0;
+    while (score >= this.nextLifeBonusScore) {
+      livesToAdd += 1;
+      this.nextLifeBonusScore += LIFE_BONUS_INTERVAL;
+    }
+
+    const nextLives = Math.min(MAX_LIVES, state.game.lives + livesToAdd);
+    if (nextLives > state.game.lives) {
+      stateManager.updateGame({ lives: nextLives });
+      const centerX = this.canvas.element.width / 2;
+      const centerY = this.canvas.element.height / 2;
+      this.floatingTexts.push(FloatingText.createLifeGained(centerX, centerY - 120));
+    }
+  }
+
+  private handleLifeLoss(): void {
+    const state = stateManager.getState();
+    const nextLives = state.game.lives - 1;
+    const centerX = this.canvas.element.width / 2;
+    const centerY = this.canvas.element.height / 2;
+
+    if (nextLives <= 0) {
+      stateManager.updateGame({ lives: 0 });
+      stateManager.setState('status', GameStatus.GAME_OVER);
+      stateManager.emit('gameOver', { score: state.game.score });
+      window.dispatchEvent(new CustomEvent('gameOver', { detail: { score: state.game.score } }));
+      return;
+    }
+
+    stateManager.updateGame({ lives: nextLives, isInvulnerable: true });
+    this.floatingTexts.push(FloatingText.createLifeLost(centerX, centerY - 120));
+    this.clearBlocksAndRestart();
+
+    if (this.invulnerabilityTimeoutId) {
+      window.clearTimeout(this.invulnerabilityTimeoutId);
+    }
+    this.invulnerabilityTimeoutId = window.setTimeout(() => {
+      stateManager.updateGame({ isInvulnerable: false });
+      this.invulnerabilityTimeoutId = null;
+    }, INVULNERABILITY_DURATION);
+  }
+
+  private clearBlocksAndRestart(): void {
+    this.hex.clearBlocks();
+    this.physicsSystem.clearFallingBlocks();
+    this.matchingSystem.resetCombo();
   }
 
   private openShopModal(): void {
@@ -876,6 +934,10 @@ export class GamePage extends BasePage {
 
     if (isNewHighScore && state.player.id) {
       void appwriteClient.updateSinglePlayerScore(state.player.id, state.game.score);
+    }
+
+    if (uiState.currentGameMode === 'timerAttack' && state.player.id) {
+      void appwriteClient.updateTimerAttackBest(state.player.id, state.game.score);
     }
 
     const groupId = state.ui.currentGroupId;
@@ -1155,6 +1217,10 @@ export class GamePage extends BasePage {
     if (this.shieldTimeoutId) {
       window.clearTimeout(this.shieldTimeoutId);
       this.shieldTimeoutId = null;
+    }
+    if (this.invulnerabilityTimeoutId) {
+      window.clearTimeout(this.invulnerabilityTimeoutId);
+      this.invulnerabilityTimeoutId = null;
     }
 
     if (this.powerUpSystem) {
