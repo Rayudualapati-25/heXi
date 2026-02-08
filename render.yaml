@@ -1,0 +1,21 @@
+# Render Blueprint Configuration
+# This file enables one-click deployment to Render
+
+services:
+  # Backend API Server
+  - type: web
+    name: hextris-server
+    runtime: node
+    region: oregon
+    plan: free
+    branch: main
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_URL
+        sync: false  # Set manually in Render dashboard
+    autoDeploy: true

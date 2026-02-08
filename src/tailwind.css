@@ -1,0 +1,201 @@
+/**
+ * Tailwind CSS imports and custom styles for Hextris
+ */
+
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* Google Fonts - Exo 2 */
+@import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;500;600;700;800;900&display=swap');
+
+/* Custom base styles */
+@layer base {
+  * {
+    @apply antialiased;
+  }
+
+  body {
+    @apply font-sans bg-white text-black m-0 p-0 overflow-x-hidden;
+    font-family: 'Exo 2', system-ui, -apple-system, sans-serif;
+  }
+
+  #app {
+    @apply w-full min-h-screen relative;
+  }
+}
+
+/* Custom components */
+@layer components {
+  .page {
+    @apply animate-fade-in;
+  }
+
+  /* Glassmorphic card effect */
+  .glass {
+    @apply bg-white/80 backdrop-blur-md border border-white/20;
+  }
+
+  /* Button hover effects */
+  .btn-hover-scale {
+    @apply transition-transform duration-200 hover:scale-105 active:scale-95;
+  }
+
+  /* Text shadows for canvas text */
+  .text-shadow {
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+  }
+
+  .text-shadow-white {
+    text-shadow: 2px 2px 4px rgba(255, 255, 255, 0.8);
+  }
+}
+
+/* Custom utilities */
+@layer utilities {
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Safe area for mobile notches */
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Prevent text selection during gameplay */
+  .no-select {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+  }
+
+  /* Touch action for mobile */
+  .touch-none {
+    touch-action: none;
+  }
+}
+
+/* Animation keyframes */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Canvas container */
+.canvas-container {
+  @apply relative w-full h-full flex items-center justify-center;
+}
+
+/* HUD overlays */
+.hud-overlay {
+  @apply fixed z-40 pointer-events-none;
+}
+
+.hud-overlay > * {
+  @apply pointer-events-auto;
+}
+
+/* Loading spinner */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Pulse animation for hearts/lives */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.1);
+  }
+}
+
+.animate-pulse-custom {
+  animation: pulse 1s ease-in-out infinite;
+}
+
+/* Mobile touch target sizing */
+@media (pointer: coarse) {
+  button,
+  a,
+  input {
+    min-height: 48px;
+    min-width: 48px;
+  }
+}
+
+/* Print styles */
+@media print {
+  body {
+    @apply bg-white;
+  }
+  
+  .no-print {
+    display: none !important;
+  }
+}

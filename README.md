@@ -1,50 +1,194 @@
-Hextris
-==========
+# Hextris - TypeScript Rewrite
 
-<img src="images/twitter-opengraph.png" width="100px"><br>
+Modern hexagonal falling block puzzle game built with TypeScript, Tailwind CSS, and Vite.
 
-An addictive puzzle game inspired by Tetris. Play it at [www.hextris.io](http://www.hextris.io), or [https://hextris.github.io/hextris](https://hextris.github.io/hextris).
+## 🎮 Features
 
-By:
- - Logan Engstrom ([@lengstrom](http://loganengstrom.com/))
- - Garrett Finucane ([@garrettdreyfus](http://github.com/garrettdreyfus))
- - Noah Moroze ([@nmoroze](http://github.com/nmoroze))
- - Michael Yang ([@themichaelyang](http://github.com/themichaelyang))
- 
- ## Citation
-Did you use Hextris in your research? Cite us as follows:
+- **Modern Architecture**: Clean TypeScript codebase with proper type safety
+- **Black & White UI**: Minimalist design with game colors only in gameplay
+- **Responsive Design**: Works seamlessly on mobile, tablet, and desktop
+- **Hash-based SPA**: Fast page transitions without reloads
+- **Component Library**: Reusable UI components (Button, Modal, Card, Input)
+- **State Management**: Centralized state with event system
+- **Game Modes**: Single Player, Multiplayer, Daily Challenge, Timer Attack
+- **Special Points System**: In-game currency for power-ups and continues
+- **Life System**: 3 lives with bonus lives at milestones
+- **Power-ups**: Hammer, Slowmo, Shield with inventory management
+- **Cloud Saves**: Appwrite integration for persistent data
+- **Multiplayer**: Real-time Socket.io rooms with live leaderboards
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Node.js 18+ 
+- pnpm (recommended) or npm
+
+### Installation
+
+```bash
+# Install dependencies
+pnpm install
+
+# Start development server
+pnpm dev
+
+# Build for production
+pnpm build
+
+# Preview production build
+pnpm preview
+
+# Type check
+pnpm type-check
 ```
-  @misc{engstrom2015hextris,
-    author = {Logan Engstrom, Garrett Finucane, Noah Moroze, Michael Yang},
-    title = {hextris},
-    year = {2015},
-    howpublished = {\url{https://github.com/hextris/hextris/}},
-    note = {commit xxxxxxx}
-  }
+
+## 📁 Project Structure
+
+```
+hextris/
+├── src/
+│   ├── main.ts              # Entry point
+│   ├── router.ts            # Hash-based router
+│   ├── tailwind.css         # Tailwind imports + custom styles
+│   ├── core/                # Core game architecture
+│   │   ├── StateManager.ts  # Centralized state
+│   │   ├── GameLoop.ts      # Render/update cycle
+│   │   ├── Canvas.ts        # Canvas utilities
+│   │   └── constants.ts     # Game constants
+│   ├── pages/               # Page components
+│   │   ├── BasePage.ts      # Abstract base class
+│   │   ├── EntryPage.ts     # Name entry
+│   │   ├── MenuPage.ts      # Main menu
+│   │   └── ...
+│   ├── ui/                  # UI components
+│   │   ├── components/      # Reusable components
+│   │   ├── modals/          # Modal dialogs
+│   │   └── hud/             # In-game HUD elements
+│   ├── entities/            # Game entities
+│   ├── systems/             # Game systems
+│   ├── network/             # API clients
+│   ├── config/              # Configuration files
+│   ├── types/               # TypeScript definitions
+│   └── utils/               # Utility functions
+├── public/
+│   └── index.html           # HTML template
+├── package.json
+├── tsconfig.json
+├── tailwind.config.js
+└── vite.config.ts
 ```
 
+## 🎨 Design System
 
-# Contributions
-This project is not very actively maintained, as we are all very busy these days. But feel free to open an issue or PR, and we'll eventually take a look.
+### Colors
 
-# About
-Hextris was created by a group of high school friends in 2014.
+**UI Colors (Black & White)**
+- Pure black (`#000000`) for primary text
+- Grays (`#f9fafb` to `#111827`) for backgrounds and secondary elements
+- Pure white (`#ffffff`) for cards and surfaces
 
-## Press kit
-http://hextris.github.io/presskit/info.html
+**Game Colors** (used only in canvas/gameplay)
+- Red: `#e74c3c`
+- Yellow: `#f1c40f`
+- Blue: `#3498db`
+- Green: `#2ecc71`
+- Hex Dark: `#2c3e50`
+- Hex Light: `#34495e`
 
-## License
-Copyright (C) 2018 Logan Engstrom
+**Status Colors**
+- Success: `#2ecc71`
+- Warning: `#f39c12`
+- Error: `#e74c3c`
+- Info: `#3498db`
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+**NO PURPLE** - All purple colors from the original design have been removed.
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+### Typography
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
+- Font: Exo 2 (Google Fonts)
+- Scales: text-sm to text-6xl
+- Weights: 300-900
+
+### Components
+
+- **Button**: 4 variants (primary, secondary, outline, ghost)
+- **Modal**: Glassmorphic backdrop with centered content
+- **Card**: 3 variants (default, glassmorphic, dark)
+- **Input**: Validation with error states
+
+## 🔧 Development
+
+### Tech Stack
+
+- **TypeScript**: Type-safe JavaScript
+- **Vite**: Fast build tool and dev server
+- **Tailwind CSS**: Utility-first CSS framework
+- **Appwrite**: Backend as a Service
+- **Socket.io**: Real-time multiplayer
+- **pnpm**: Fast, disk-efficient package manager
+
+### Code Style
+
+- Strict TypeScript mode enabled
+- ESLint for code quality
+- Path aliases (`@core`, `@ui`, `@systems`, etc.)
+- Modular architecture with clear separation of concerns
+
+### Environment Variables
+
+Create a `.env` file in the root:
+
+```env
+VITE_APPWRITE_ENDPOINT=https://cloud.appwrite.io/v1
+VITE_APPWRITE_PROJECT_ID=your_project_id
+VITE_MULTIPLAYER_URL=http://localhost:3000
+```
+
+## 🎯 Implementation Phases
+
+- [x] **Phase 1**: Foundation (pnpm, TS, Tailwind, configs)
+- [x] **Phase 2**: Core architecture (StateManager, Router, GameLoop)
+- [x] **Phase 3**: UI component library (Button, Modal, Card, Input)
+- [x] **Phase 4**: Base page class and entry page
+- [ ] **Phase 5**: Remaining pages (Menu, Difficulty, Game, Settings)
+- [ ] **Phase 6**: Game entities (Block, Hex, PowerUp)
+- [ ] **Phase 7**: Game systems (Life, Points, Matching, Physics)
+- [ ] **Phase 8**: Network integration (Appwrite, Multiplayer)
+- [ ] **Phase 9**: HUD elements and modals
+- [ ] **Phase 10**: Polish and optimization
+
+## 📱 Responsive Design
+
+- **Mobile**: < 640px - Fullscreen canvas, minimal HUD
+- **Tablet**: 640px-1024px - Scaled canvas, adapted HUD
+- **Desktop**: > 1024px - Centered canvas, full HUD
+
+## 🌐 Browser Support
+
+- Chrome/Edge (Chromium) 90+
+- Firefox 88+
+- Safari 14+
+- Mobile browsers (iOS Safari, Chrome Android)
+
+## 📄 License
+
+MIT License - see LICENSE.md
+
+## 🤝 Contributing
+
+This is a rewrite project converting vanilla JS to TypeScript. Contributions welcome!
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request
+
+## 🎮 Original Credits
+
+Based on the original Hextris game, modernized with TypeScript and Tailwind CSS.
+
+---
+
+**Current Status**: Phase 1 Complete ✅ - Foundation laid with TypeScript, Tailwind, routing, state management, and UI components. Ready to implement game logic and pages.
