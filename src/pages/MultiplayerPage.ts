@@ -6,6 +6,7 @@ import { BasePage } from './BasePage';
 import { Button } from '@ui/components/Button';
 import { Input } from '@ui/components/Input';
 import { Modal } from '@ui/components/Modal';
+import { Toast } from '@ui/components/Toast';
 import { GroupLeaderboardModal } from '@ui/modals/GroupLeaderboardModal';
 import { LobbyModal } from '@ui/modals/LobbyModal';
 import { NameEntryModal } from '@ui/modals/NameEntryModal';
@@ -25,6 +26,7 @@ export class MultiplayerPage extends BasePage {
   private buttons: Button[] = [];
   private lobbyModal: LobbyModal | null = null;
   private currentLobbyGroup: Group | null = null;
+  private previousPlayerCount: number = 0;
 
   public render(): void {
     const container = this.initPageLayout({
@@ -333,6 +335,9 @@ export class MultiplayerPage extends BasePage {
         () => this.handleMatchStart()
       );
       
+      // Initialize player count tracker
+      this.previousPlayerCount = 1;
+      
       // Update state
       stateManager.updateMultiplayer({
         roomId: group.$id,
@@ -364,11 +369,15 @@ export class MultiplayerPage extends BasePage {
         () => this.handleMatchStart()
       );
       
+      // Initialize player count tracker
+      const lobbyPlayers = this.groupManager.getLobbyPlayers();
+      this.previousPlayerCount = lobbyPlayers.filter(p => !p.hasLeft).length;
+      
       // Update state
       stateManager.updateMultiplayer({
         roomId: group.$id,
         roomCode: group.roomCode,
-        players: this.groupManager.getLobbyPlayers(),
+        players: lobbyPlayers,
         isInLobby: true,
         localPlayerReady: false,
       });
@@ -416,6 +425,31 @@ export class MultiplayerPage extends BasePage {
   }
   
   private handleLobbyUpdate(players: LobbyPlayer[]): void {
+    // Detect new players joining
+    const activePlayers = players.filter(p => !p.hasLeft);
+    if (activePlayers.length > this.previousPlayerCount && this.previousPlayerCount > 0) {
+      const newPlayers = activePlayers.filter(p => {
+        const state = stateManager.getState();
+        return !state.multiplayer.players.some(existing => existing.userId === p.userId);
+      });
+      
+      newPlayers.forEach(player => {
+        Toast.success(`${player.userName} joined the lobby`, 3000);
+      });
+    }
+    
+    // Detect players leaving
+    const state = stateManager.getState();
+    const leftPlayers = state.multiplayer.players.filter(existing => 
+      !activePlayers.some(p => p.userId === existing.userId)
+    );
+    
+    leftPlayers.forEach(player => {
+      Toast.warning(`${player.userName} left the lobby`, 3000);
+    });
+    
+    this.previousPlayerCount = activePlayers.length;
+    
     // Update state
     stateManager.updateMultiplayer({ players });
     

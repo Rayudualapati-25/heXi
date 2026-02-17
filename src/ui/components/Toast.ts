@@ -13,7 +13,6 @@ export interface ToastOptions {
 export class Toast {
   private static container: HTMLDivElement | null = null;
   private element: HTMLDivElement;
-  private timeout: number | null = null;
 
   constructor(options: ToastOptions) {
     if (!Toast.container) {
@@ -100,7 +99,7 @@ export class Toast {
     });
 
     // Auto-dismiss after duration
-    this.timeout = window.setTimeout(() => {
+    window.setTimeout(() => {
       this.hide();
     }, duration);
   }

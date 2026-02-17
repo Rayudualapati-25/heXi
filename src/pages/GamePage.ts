@@ -6,6 +6,7 @@
 import { BasePage } from './BasePage';
 import { Button } from '@ui/components/Button';
 import { Modal } from '@ui/components/Modal';
+import { Toast } from '@ui/components/Toast';
 import { Router } from '@/router';
 import { stateManager } from '@core/StateManager';
 import { GameLoop } from '@core/GameLoop';
@@ -2377,10 +2378,33 @@ export class GamePage extends BasePage {
       },
       () => {
         this.handleOpponentDisconnect();
+      },
+      (playerName: string, remainingPlayers: string[]) => {
+        this.handlePlayerLeft(playerName, remainingPlayers);
       }
     );
     
     console.log('[GamePage] Multiplayer score sync started');
+  }
+  
+  /**
+   * Handle player leaving during game
+   */
+  private handlePlayerLeft(playerName: string, remainingPlayers: string[]): void {
+    // Show notification
+    Toast.warning(`${playerName} left the game`, 4000);
+    
+    // Show remaining players if any
+    if (remainingPlayers.length > 0) {
+      const message = remainingPlayers.length === 1 
+        ? `1 player remaining: ${remainingPlayers[0]}`
+        : `${remainingPlayers.length} players remaining`;
+      Toast.info(message, 3000);
+    } else {
+      Toast.info('You are now playing solo', 3000);
+    }
+    
+    console.log('[GamePage] Player left:', playerName, 'Remaining:', remainingPlayers);
   }
   
   /**

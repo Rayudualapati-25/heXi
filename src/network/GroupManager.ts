@@ -673,8 +673,11 @@ export class GroupManager {
     this.broadcastLobbyState();
     
     // Cleanup after a short delay to allow broadcast
+    const userId = this.currentUserId;
     setTimeout(() => {
-      this.lobbyPlayers.delete(this.currentUserId);
+      if (userId) {
+        this.lobbyPlayers.delete(userId);
+      }
       this.cleanupLobby();
     }, 500);
     
