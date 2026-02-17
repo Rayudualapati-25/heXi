@@ -86,13 +86,18 @@ export interface GroupScore {
   gamesPlayed: number;
   lastPlayedAt?: string;
   difficulty?: string;
+  hasLeft?: boolean; // Track if player left during the game
+  leftAt?: string; // Timestamp when player left
 }
 
 export interface LobbyPlayer {
   userId: string;
   userName: string;
+  displayName?: string; // Optional custom display name for the room
   isReady: boolean;
   isHost: boolean;
+  isActive?: boolean; // Track if player is still in the game (not disconnected)
+  hasLeft?: boolean; // Track if player left during the game
 }
 
 export interface MultiplayerLobbyState {

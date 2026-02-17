@@ -6,8 +6,10 @@ import { BasePage } from './BasePage';
 import { Button } from '@ui/components/Button';
 import { Input } from '@ui/components/Input';
 import { Modal } from '@ui/components/Modal';
+import { Toast } from '@ui/components/Toast';
 import { GroupLeaderboardModal } from '@ui/modals/GroupLeaderboardModal';
 import { LobbyModal } from '@ui/modals/LobbyModal';
+import { NameEntryModal } from '@ui/modals/NameEntryModal';
 import { Router } from '@/router';
 import { stateManager } from '@core/StateManager';
 import { ROUTES } from '@core/constants';
@@ -24,6 +26,7 @@ export class MultiplayerPage extends BasePage {
   private buttons: Button[] = [];
   private lobbyModal: LobbyModal | null = null;
   private currentLobbyGroup: Group | null = null;
+  private previousPlayerCount: number = 0;
 
   public render(): void {
     const container = this.initPageLayout({
@@ -190,16 +193,28 @@ export class MultiplayerPage extends BasePage {
 
     this.contentContainer.appendChild(nameInput.container);
 
+    const playerNameInput = new Input({
+      label: 'Your Display Name',
+      placeholder: 'Enter your display name',
+      required: true,
+      maxLength: 20,
+      minLength: 2,
+      value: state.player.name,
+    });
+
+    this.contentContainer.appendChild(playerNameInput.container);
+
     const createBtn = new Button('Create Group', {
       variant: 'primary',
       size: 'medium',
       fullWidth: true,
       onClick: async () => {
-        if (!nameInput.validate()) return;
-        const name = nameInput.getValue();
+        if (!nameInput.validate() || !playerNameInput.validate()) return;
+        const groupName = nameInput.getValue();
+        const displayName = playerNameInput.getValue();
 
         try {
-          const group = await this.groupManager.createGroup(state.player.id, name, state.player.name);
+          const group = await this.groupManager.createGroup(state.player.id, groupName, displayName);
           this.showMessage('Group Created', `Room code: ${group.roomCode}`);
           this.currentView = 'list';
           this.renderView();
@@ -240,19 +255,39 @@ export class MultiplayerPage extends BasePage {
         if (!codeInput.validate()) return;
         const code = codeInput.getValue().toUpperCase();
 
+        // Show name entry modal before joining
+        this.showNameEntryModal(code);
+      },
+    });
+
+    this.buttons.push(joinBtn);
+    this.contentContainer.appendChild(joinBtn.element);
+  }
+
+  private showNameEntryModal(roomCode: string): void {
+    const state = stateManager.getState();
+    if (!state.player.id) return;
+
+    const nameEntryModal = new NameEntryModal({
+      roomCode,
+      defaultName: state.player.name,
+      onSubmit: async (displayName: string) => {
         try {
-          const group = await this.groupManager.joinGroup(state.player.id, state.player.name, code);
-          this.showMessage('Joined Group', `You joined ${group.groupName}`);
+          // Join the group with the custom display name
+          const group = await this.groupManager.joinGroup(state.player.id, displayName, roomCode);
+          this.showMessage('Joined Group', `You joined ${group.groupName} as ${displayName}`);
           this.currentView = 'list';
           this.renderView();
         } catch (error: any) {
           this.showMessage('Error', error.message || 'Failed to join group');
         }
       },
+      onCancel: () => {
+        // User cancelled - do nothing
+      },
     });
 
-    this.buttons.push(joinBtn);
-    this.contentContainer.appendChild(joinBtn.element);
+    nameEntryModal.open();
   }
 
   private async showGroupLeaderboard(group: Group): Promise<void> {
@@ -300,6 +335,9 @@ export class MultiplayerPage extends BasePage {
         () => this.handleMatchStart()
       );
       
+      // Initialize player count tracker
+      this.previousPlayerCount = 1;
+      
       // Update state
       stateManager.updateMultiplayer({
         roomId: group.$id,
@@ -331,11 +369,15 @@ export class MultiplayerPage extends BasePage {
         () => this.handleMatchStart()
       );
       
+      // Initialize player count tracker
+      const lobbyPlayers = this.groupManager.getLobbyPlayers();
+      this.previousPlayerCount = lobbyPlayers.filter(p => !p.hasLeft).length;
+      
       // Update state
       stateManager.updateMultiplayer({
         roomId: group.$id,
         roomCode: group.roomCode,
-        players: this.groupManager.getLobbyPlayers(),
+        players: lobbyPlayers,
         isInLobby: true,
         localPlayerReady: false,
       });
@@ -383,6 +425,31 @@ export class MultiplayerPage extends BasePage {
   }
   
   private handleLobbyUpdate(players: LobbyPlayer[]): void {
+    // Detect new players joining
+    const activePlayers = players.filter(p => !p.hasLeft);
+    if (activePlayers.length > this.previousPlayerCount && this.previousPlayerCount > 0) {
+      const newPlayers = activePlayers.filter(p => {
+        const state = stateManager.getState();
+        return !state.multiplayer.players.some(existing => existing.userId === p.userId);
+      });
+      
+      newPlayers.forEach(player => {
+        Toast.success(`${player.userName} joined the lobby`, 3000);
+      });
+    }
+    
+    // Detect players leaving
+    const state = stateManager.getState();
+    const leftPlayers = state.multiplayer.players.filter(existing => 
+      !activePlayers.some(p => p.userId === existing.userId)
+    );
+    
+    leftPlayers.forEach(player => {
+      Toast.warning(`${player.userName} left the lobby`, 3000);
+    });
+    
+    this.previousPlayerCount = activePlayers.length;
+    
     // Update state
     stateManager.updateMultiplayer({ players });
     

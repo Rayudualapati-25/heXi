@@ -8,14 +8,19 @@ Modern hexagonal falling block puzzle game built with TypeScript, Tailwind CSS, 
 - **Black & White UI**: Minimalist design with game colors only in gameplay
 - **Responsive Design**: Works seamlessly on mobile, tablet, and desktop
 - **Hash-based SPA**: Fast page transitions without reloads
-- **Component Library**: Reusable UI components (Button, Modal, Card, Input)
+- **Component Library**: Reusable UI components (Button, Modal, Card, Input, Toast)
 - **State Management**: Centralized state with event system
 - **Game Modes**: Single Player, Multiplayer, Daily Challenge, Timer Attack
 - **Special Points System**: In-game currency for power-ups and continues
 - **Life System**: 3 lives with bonus lives at milestones
 - **Power-ups**: Hammer, Slowmo, Shield with inventory management
 - **Cloud Saves**: Appwrite integration for persistent data
-- **Multiplayer**: Group-based leaderboards synced via Appwrite
+- **🆕 Enhanced Multiplayer**: 
+  - Room-based gameplay with unique codes
+  - Custom player names for each room
+  - Real-time player tracking (active/left status)
+  - Toast notifications for player events
+  - Comprehensive leaderboards showing all players
 
 ## 🚀 Quick Start
 
@@ -169,6 +174,12 @@ VITE_APPWRITE_PROJECT_ID=your_project_id
 - Safari 14+
 - Mobile browsers (iOS Safari, Chrome Android)
 
+## 📚 Documentation
+
+- **[MULTIPLAYER_GUIDE.md](MULTIPLAYER_GUIDE.md)**: Complete user guide for multiplayer features
+- **[MULTIPLAYER_IMPLEMENTATION.md](MULTIPLAYER_IMPLEMENTATION.md)**: Technical implementation details
+- **[APPWRITE_SETUP.md](APPWRITE_SETUP.md)**: Backend setup instructions
+
 ## 📄 License
 
 MIT License - see LICENSE.md
@@ -189,4 +200,4 @@ Based on the original Hextris game, modernized with TypeScript and Tailwind CSS.
 
 ---
 
-**Current Status**: Phase 1 Complete ✅ - Foundation laid with TypeScript, Tailwind, routing, state management, and UI components. Ready to implement game logic and pages.
+**Current Status**: Multiplayer Complete ✅ - Full room-based multiplayer with player name entry, real-time tracking, disconnect handling, and comprehensive leaderboards.

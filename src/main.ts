@@ -15,12 +15,21 @@ import { stateManager } from '@core/StateManager';
 import { ThemeName } from '@config/themes';
 import { createEmptyInventory } from '@config/shopItems';
 import { themeManager } from '@/managers/ThemeManager';
+import { client } from './lib/appwrite';
 
 
 /**
  * Initialize the application
  */
 async function init(): Promise<void> {
+  // Verify Appwrite connection
+  try {
+    await client.ping();
+    console.log('✅ Appwrite connection verified');
+  } catch (error) {
+    console.error('❌ Appwrite connection failed:', error);
+  }
+
   // Get app container
   const appContainer = document.getElementById('app');
   
