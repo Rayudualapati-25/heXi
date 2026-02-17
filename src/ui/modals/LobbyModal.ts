@@ -135,7 +135,10 @@ export class LobbyModal {
 
     for (const player of this.options.players) {
       const playerCard = document.createElement('div');
-      playerCard.className = 'flex items-center justify-between p-3 theme-card rounded-lg';
+      // Apply different styling for players who left
+      playerCard.className = player.hasLeft 
+        ? 'flex items-center justify-between p-3 theme-card rounded-lg opacity-50'
+        : 'flex items-center justify-between p-3 theme-card rounded-lg';
 
       const playerInfo = document.createElement('div');
       playerInfo.className = 'flex items-center gap-3';
@@ -149,17 +152,24 @@ export class LobbyModal {
       }
 
       const playerName = document.createElement('div');
-      playerName.className = 'font-semibold theme-text';
+      playerName.className = player.hasLeft 
+        ? 'font-semibold theme-text line-through'
+        : 'font-semibold theme-text';
       playerName.textContent = player.userName;
       playerInfo.appendChild(playerName);
 
       const statusBadge = document.createElement('div');
-      statusBadge.className = `px-2 py-1 rounded text-xs font-bold ${
-        player.isReady
-          ? 'bg-green-500/20 text-green-400'
-          : 'bg-gray-500/20 text-gray-400'
-      }`;
-      statusBadge.textContent = player.isReady ? 'READY' : 'NOT READY';
+      if (player.hasLeft) {
+        statusBadge.className = 'px-2 py-1 rounded text-xs font-bold bg-red-500/20 text-red-400';
+        statusBadge.textContent = 'LEFT';
+      } else {
+        statusBadge.className = `px-2 py-1 rounded text-xs font-bold ${
+          player.isReady
+            ? 'bg-green-500/20 text-green-400'
+            : 'bg-gray-500/20 text-gray-400'
+        }`;
+        statusBadge.textContent = player.isReady ? 'READY' : 'NOT READY';
+      }
 
       playerCard.appendChild(playerInfo);
       playerCard.appendChild(statusBadge);

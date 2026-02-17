@@ -16,6 +16,7 @@ interface LiveScore {
 
 type ScoreSyncCallback = (opponentScore: number, opponentName: string) => void;
 type DisconnectCallback = () => void;
+type PlayerLeftCallback = (userName: string, remainingPlayers: string[]) => void;
 type LobbyUpdateCallback = (players: LobbyPlayer[]) => void;
 type MatchStartCallback = () => void;
 
@@ -32,6 +33,7 @@ export class GroupManager {
   private currentGroupId: string | null = null;
   private scoreSyncCallback: ScoreSyncCallback | null = null;
   private disconnectCallback: DisconnectCallback | null = null;
+  private playerLeftCallback: PlayerLeftCallback | null = null;
   private lastScoreEmitMs = 0;
   private scoreEmitThrottleMs = 1000; // Emit at most once per second
   
@@ -238,6 +240,30 @@ export class GroupManager {
     return response.documents as unknown as Group[];
   }
 
+  /**
+   * Mark player as left in group score (for tracking who quit during game)
+   */
+  public async markPlayerLeftInScore(userId: string, groupId: string): Promise<void> {
+    try {
+      const existing = await this.getGroupScore(userId, groupId);
+      if (!existing) return;
+
+      await databases.updateDocument(
+        this.databaseId,
+        this.groupScoresCollectionId,
+        existing.$id,
+        {
+          hasLeft: true,
+          leftAt: new Date().toISOString(),
+        }
+      );
+
+      console.log('[GroupManager] Player marked as left in score:', userId);
+    } catch (error) {
+      console.error('Error marking player as left:', error);
+    }
+  }
+
   private async getGroupScore(userId: string, groupId: string): Promise<GroupScore | null> {
     const response = await databases.listDocuments(
       this.databaseId,
@@ -257,6 +283,8 @@ export class GroupManager {
       gamesPlayed: doc.gamesPlayed as number,
       lastPlayedAt: doc.lastPlayedAt as string | undefined,
       difficulty: doc.difficulty as string | undefined,
+      hasLeft: doc.hasLeft as boolean | undefined,
+      leftAt: doc.leftAt as string | undefined,
     };
   }
 
@@ -276,6 +304,7 @@ export class GroupManager {
         gamesPlayed: 0,
         lastPlayedAt: new Date().toISOString(),
         difficulty: 'standard',
+        hasLeft: false,
       }
     );
   }
@@ -289,12 +318,14 @@ export class GroupManager {
     userName: string,
     groupId: string,
     onScoreUpdate: ScoreSyncCallback,
-    onDisconnect: DisconnectCallback
+    onDisconnect: DisconnectCallback,
+    onPlayerLeft?: PlayerLeftCallback
   ): void {
     this.currentUserId = userId;
     this.currentGroupId = groupId;
     this.scoreSyncCallback = onScoreUpdate;
     this.disconnectCallback = onDisconnect;
+    this.playerLeftCallback = onPlayerLeft ?? null;
     this.liveScores.clear();
     this.lastScoreEmitMs = 0;
     
@@ -340,6 +371,7 @@ export class GroupManager {
     this.currentGroupId = null;
     this.scoreSyncCallback = null;
     this.disconnectCallback = null;
+    this.playerLeftCallback = null;
     
     console.log('[GroupManager] Score sync stopped');
   }
@@ -447,6 +479,7 @@ export class GroupManager {
     
     let hadOpponents = false;
     let hasOpponents = false;
+    const leftPlayers: string[] = [];
     
     for (const [userId, liveScore] of this.liveScores) {
       if (userId === this.currentUserId) continue;
@@ -455,7 +488,15 @@ export class GroupManager {
       
       if (now - liveScore.timestamp > staleThresholdMs) {
         this.liveScores.delete(userId);
-        console.log('[GroupManager] Opponent disconnected:', userId);
+        console.log('[GroupManager] Opponent disconnected:', userId, liveScore.userName);
+        
+        // Mark player as left
+        leftPlayers.push(liveScore.userName);
+        
+        // Mark in database
+        if (this.currentGroupId) {
+          void this.markPlayerLeftInScore(userId, this.currentGroupId);
+        }
         
         // Clean up their localStorage entry
         const key = `score_${this.currentGroupId}_${userId}`;
@@ -463,6 +504,17 @@ export class GroupManager {
       } else {
         hasOpponents = true;
       }
+    }
+    
+    // Notify about players who left
+    if (leftPlayers.length > 0 && this.playerLeftCallback) {
+      const remainingPlayers = Array.from(this.liveScores.values())
+        .filter(s => s.userId !== this.currentUserId)
+        .map(s => s.userName);
+      
+      leftPlayers.forEach(playerName => {
+        this.playerLeftCallback!(playerName, remainingPlayers);
+      });
     }
     
     // Trigger disconnect callback if all opponents are gone
@@ -499,6 +551,8 @@ export class GroupManager {
       userName,
       isReady: false,
       isHost: true,
+      isActive: true,
+      hasLeft: false,
     };
     this.lobbyPlayers.set(userId, hostPlayer);
     
@@ -536,6 +590,8 @@ export class GroupManager {
       userName,
       isReady: false,
       isHost: false,
+      isActive: true,
+      hasLeft: false,
     };
     this.lobbyPlayers.set(userId, player);
     
@@ -605,16 +661,45 @@ export class GroupManager {
   public leaveLobby(): void {
     if (!this.currentUserId || !this.currentGroupId) return;
     
-    // Remove self from lobby
-    this.lobbyPlayers.delete(this.currentUserId);
+    // Mark self as having left
+    const player = this.lobbyPlayers.get(this.currentUserId);
+    if (player) {
+      player.hasLeft = true;
+      player.isActive = false;
+      this.lobbyPlayers.set(this.currentUserId, player);
+    }
     
-    // Broadcast updated state
+    // Broadcast updated state to notify others
     this.broadcastLobbyState();
     
-    // Cleanup
-    this.cleanupLobby();
+    // Cleanup after a short delay to allow broadcast
+    setTimeout(() => {
+      this.lobbyPlayers.delete(this.currentUserId);
+      this.cleanupLobby();
+    }, 500);
     
     console.log('[GroupManager] Left lobby');
+  }
+  
+  /**
+   * Mark player as left during active game
+   */
+  public markPlayerAsLeft(userId: string): void {
+    const player = this.lobbyPlayers.get(userId);
+    if (player) {
+      player.hasLeft = true;
+      player.isActive = false;
+      this.lobbyPlayers.set(userId, player);
+      this.broadcastLobbyState();
+      console.log('[GroupManager] Player marked as left:', userId);
+    }
+  }
+  
+  /**
+   * Get active players (not left)
+   */
+  public getActivePlayers(): LobbyPlayer[] {
+    return Array.from(this.lobbyPlayers.values()).filter(p => p.isActive !== false);
   }
   
   /**

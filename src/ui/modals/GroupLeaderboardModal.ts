@@ -85,7 +85,9 @@ export class GroupLeaderboardModal {
         ? score.userId === this.options.currentUserId
         : false;
 
-      row.className = `flex items-center justify-between p-3 ${isCurrent ? 'theme-card' : 'theme-card-muted'}`;
+      // Apply opacity for players who left
+      const leftClass = score.hasLeft ? 'opacity-60' : '';
+      row.className = `flex items-center justify-between p-3 ${isCurrent ? 'theme-card' : 'theme-card-muted'} ${leftClass}`;
 
       const left = document.createElement('div');
       left.className = 'flex items-center gap-3';
@@ -96,8 +98,20 @@ export class GroupLeaderboardModal {
       left.appendChild(rank);
 
       const name = document.createElement('div');
-      name.className = 'text-sm font-semibold theme-text';
-      name.textContent = score.userName;
+      name.className = 'text-sm font-semibold theme-text flex items-center gap-2';
+      
+      const nameText = document.createElement('span');
+      nameText.textContent = score.userName;
+      name.appendChild(nameText);
+      
+      // Add "LEFT" badge if player left
+      if (score.hasLeft) {
+        const leftBadge = document.createElement('span');
+        leftBadge.className = 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-500/20 text-red-400';
+        leftBadge.textContent = 'LEFT';
+        name.appendChild(leftBadge);
+      }
+      
       left.appendChild(name);
 
       const value = document.createElement('div');
