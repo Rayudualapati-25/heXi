@@ -30,6 +30,7 @@ export class PhysicsSystem {
     // Update each falling block (iterate backwards to safely remove)
     for (let i = this.fallingBlocks.length - 1; i >= 0; i--) {
       const block = this.fallingBlocks[i];
+      const wasSettled = block.settled;
       
       // STEP 1: Check collision BEFORE movement (original order)
       hex.doesBlockCollide(block);
@@ -41,8 +42,21 @@ export class PhysicsSystem {
           block.distFromHex -= block.iter * dt * scale;
         }
       } else if (!block.removed) {
-        // Block just settled - mark for removal
+        // Block just settled - mark for removal and dispatch collision event if it just settled
         block.removed = true;
+        
+        // Dispatch collision event if block just became settled this frame
+        if (!wasSettled && block.settled) {
+          window.dispatchEvent(
+            new CustomEvent('collision', {
+              detail: {
+                lane: block.fallingLane,
+                speed: block.iter,
+                distFromHex: block.distFromHex,
+              },
+            })
+          );
+        }
       }
     }
     

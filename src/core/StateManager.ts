@@ -82,6 +82,13 @@ export class StateManager {
         multiplayerMode: 'race',
         prestigeMutators: [],
       },
+      multiplayer: {
+        roomId: null,
+        roomCode: null,
+        players: [],
+        isInLobby: false,
+        localPlayerReady: false,
+      },
     };
   }
 
@@ -155,6 +162,13 @@ export class StateManager {
    */
   public updateUI(updates: Partial<GameState['ui']>): void {
     this.setState('ui', updates);
+  }
+  
+  /**
+   * Update multiplayer lobby state
+   */
+  public updateMultiplayer(updates: Partial<GameState['multiplayer']>): void {
+    this.setState('multiplayer', updates);
   }
 
   /**

@@ -67,6 +67,13 @@ export class TimeOrbSystem {
     this.lastSpawnMs = -Infinity;
   }
 
+  /**
+   * Clear active orbs on field (for life loss)
+   */
+  public clearActiveOrbs(): void {
+    this.activeOrbs = [];
+  }
+
   public setEnabled(enabled: boolean): void {
     this.enabled = enabled;
   }

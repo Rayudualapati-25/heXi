@@ -10,8 +10,7 @@ import { Router } from '@/router';
 import { stateManager } from '@core/StateManager';
 import { ROUTES } from '@core/constants';
 import { ThemeName, themes, availableThemes, themePrices, type Theme } from '@config/themes';
-import { authService } from '@services/AuthService';
-import { appwriteClient } from '@network/AppwriteClient';
+import { createEmptyInventory } from '@config/shopItems';
 import { audioManager } from '@/managers/AudioManager';
 import { themeManager } from '@/managers/ThemeManager';
 
@@ -202,10 +201,6 @@ export class SettingsPage extends BasePage {
 
     stateManager.updatePlayer({ selectedTheme: themeName });
     themeManager.applyTheme(themeName);
-
-    if (state.player.id) {
-      void appwriteClient.updateSelectedTheme(state.player.id, themeName);
-    }
 
     this.render();
     console.log(`Theme changed to: ${themeName}`);
@@ -436,35 +431,39 @@ export class SettingsPage extends BasePage {
   }
 
   /**
-   * Clear local data (deletes user account and all data)
+   * Clear local data only
    */
   private async clearData(): Promise<void> {
-    if (!confirm('Are you sure you want to delete your account and all data? This cannot be undone.')) {
+    if (!confirm('Are you sure you want to clear all local data? This cannot be undone.')) {
       return;
     }
 
     try {
-      const state = stateManager.getState();
-      const userId = state.player.id;
+      // Clear local state
+      stateManager.setState('player', {
+        id: 'local-player',
+        name: 'Player',
+        highScore: 0,
+        specialPoints: 500,
+        gamesPlayed: 0,
+        totalPlayTime: 0,
+        themesUnlocked: [ThemeName.CLASSIC],
+        selectedTheme: ThemeName.CLASSIC,
+        inventory: createEmptyInventory(),
+      });
 
-      // Delete user from database
-      await appwriteClient.deleteUser(userId);
+      // Navigate to menu
+      Router.getInstance().navigate(ROUTES.MENU);
 
-      // Logout and clear session
-      await authService.logout();
-
-      // Navigate to login
-      Router.getInstance().navigate(ROUTES.ENTRY);
-
-      alert('Account deleted successfully.');
+      alert('Local data cleared successfully.');
     } catch (error) {
-      console.error('Failed to delete account:', error);
-      alert('Failed to delete account. Please try again.');
+      console.error('Failed to clear data:', error);
+      alert('Failed to clear data. Please try again.');
     }
   }
 
   /**
-   * Logout user
+   * Simple logout - clear local state and navigate to menu
    */
   private async logout(): Promise<void> {
     if (!confirm('Are you sure you want to log out?')) {
@@ -472,8 +471,21 @@ export class SettingsPage extends BasePage {
     }
 
     try {
-      await authService.logout();
-      Router.getInstance().navigate(ROUTES.ENTRY);
+      // Clear local state
+      stateManager.setState('player', {
+        id: 'local-player',
+        name: 'Player',
+        highScore: 0,
+        specialPoints: 500,
+        gamesPlayed: 0,
+        totalPlayTime: 0,
+        themesUnlocked: [ThemeName.CLASSIC],
+        selectedTheme: ThemeName.CLASSIC,
+        inventory: createEmptyInventory(),
+      });
+      
+      // Navigate to menu (no login page anymore)
+      Router.getInstance().navigate(ROUTES.MENU);
     } catch (error) {
       console.error('Logout failed:', error);
       alert('Failed to log out. Please try again.');

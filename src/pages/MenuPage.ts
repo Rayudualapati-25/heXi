@@ -13,7 +13,6 @@ import { appwriteClient } from '@network/AppwriteClient';
 import { GroupManager } from '@network/GroupManager';
 import { LeaderboardModal } from '@ui/modals/LeaderboardModal';
 import { ShopModal } from '@ui/modals/ShopModal';
-import { authService } from '@services/AuthService';
 import { GroupLeaderboardModal } from '@ui/modals/GroupLeaderboardModal';
 import type { Group } from '@/types/game';
 import { DifficultyLevel } from '@config/difficulty';
@@ -33,9 +32,9 @@ export class MenuPage extends BasePage {
     });
 
     const bgDecor1 = document.createElement('div');
-    bgDecor1.className = 'absolute top-6 right-4 w-48 sm:w-72 h-48 sm:h-72 bg-white/5 rounded-full blur-3xl z-0';
+    bgDecor1.className = 'absolute top-6 right-4 w-48 sm:w-72 h-48 sm:h-72 bg-black/10 rounded-full blur-3xl z-0';
     const bgDecor2 = document.createElement('div');
-    bgDecor2.className = 'absolute bottom-4 left-4 w-40 sm:w-64 h-40 sm:h-64 bg-black/5 rounded-full blur-3xl z-0';
+    bgDecor2.className = 'absolute bottom-4 left-4 w-40 sm:w-64 h-40 sm:h-64 bg-white/10 rounded-full blur-3xl z-0';
     this.element.insertBefore(bgDecor1, container);
     this.element.insertBefore(bgDecor2, container);
 
@@ -45,17 +44,25 @@ export class MenuPage extends BasePage {
 
     const state = stateManager.getState();
     const greeting = document.createElement('p');
-    greeting.className = 'theme-text-secondary text-xs font-semibold tracking-widest uppercase mb-2 sm:mb-4 letter-spacing-wide';
+    greeting.className = 'text-xs font-semibold tracking-widest uppercase mb-2 sm:mb-4 letter-spacing-wide';
+    greeting.style.color = '#666666';
+    greeting.style.fontFamily = 'Inter, system-ui, sans-serif';
     greeting.textContent = `Welcome Back, ${state.player.name}!`;
     topSection.appendChild(greeting);
 
     const title = document.createElement('h1');
-    title.className = 'text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black theme-text mb-2 sm:mb-3 tracking-tighter drop-shadow-lg';
+    title.className = 'text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black mb-2 sm:mb-3 tracking-tighter drop-shadow-lg';
+    title.style.color = '#000000';
+    title.style.fontFamily = 'Space Grotesk, Inter, system-ui, sans-serif';
+    title.style.fontWeight = '900';
+    title.style.letterSpacing = '-0.02em';
     title.textContent = 'HEXTRIS';
     topSection.appendChild(title);
 
     const subtitle = document.createElement('p');
-    subtitle.className = 'theme-text-secondary text-sm sm:text-base font-medium';
+    subtitle.className = 'text-sm sm:text-base font-medium';
+    subtitle.style.color = '#666666';
+    subtitle.style.fontFamily = 'Inter, system-ui, sans-serif';
     subtitle.textContent = 'Master the hexagon. Beat your high score.';
     topSection.appendChild(subtitle);
 
@@ -67,31 +74,42 @@ export class MenuPage extends BasePage {
 
     // High Score Card
     const scoreCard = document.createElement('div');
-    scoreCard.className = 'theme-card rounded-lg p-3 sm:p-4 text-center transition-all duration-300 hover:shadow-lg hover:scale-105 shadow-sm';
+    scoreCard.className = 'rounded-lg p-3 sm:p-4 text-center transition-all duration-300 hover:shadow-lg hover:scale-105 shadow-sm';
+    scoreCard.style.backgroundColor = '#ffffff';
+    scoreCard.style.border = '2px solid #000000';
     scoreCard.innerHTML = `
-      <div class="text-3xl sm:text-4xl font-bold theme-text mb-1">${state.player.highScore.toLocaleString()}</div>
-      <div class="text-xs font-semibold theme-text-secondary uppercase tracking-wide">High Score</div>
-      <div class="text-xs theme-text-secondary mt-2">Keep pushing</div>
+      <div class="text-3xl sm:text-4xl font-bold mb-1" style="color: #000000; font-family: 'Space Grotesk', Inter, system-ui, sans-serif;">${state.player.highScore.toLocaleString()}</div>
+      <div class="text-xs font-semibold uppercase tracking-wide" style="color: #666666; font-family: 'Inter', system-ui, sans-serif;">High Score</div>
+      <div class="text-xs mt-2" style="color: #999999; font-family: 'Inter', system-ui, sans-serif;">Keep pushing</div>
     `;
     statsSection.appendChild(scoreCard);
 
     // Diamonds Card
     const diamondsCard = document.createElement('div');
-    diamondsCard.className = 'theme-card rounded-lg p-3 sm:p-4 text-center transition-all duration-300 hover:shadow-lg hover:scale-105 shadow-sm';
+    diamondsCard.className = 'rounded-lg p-3 sm:p-4 text-center transition-all duration-300 hover:shadow-lg hover:scale-105 shadow-sm';
+    diamondsCard.style.backgroundColor = '#ffffff';
+    diamondsCard.style.border = '2px solid #000000';
     const diamondsIcon = document.createElement('div');
     diamondsIcon.className = 'text-2xl sm:text-3xl mb-1';
+    diamondsIcon.style.color = '#0066cc';
     diamondsIcon.textContent = '💎';
 
     this.diamondCountEl = document.createElement('div');
-    this.diamondCountEl.className = 'text-3xl sm:text-4xl font-bold theme-text mb-1';
+    this.diamondCountEl.className = 'text-3xl sm:text-4xl font-bold mb-1';
+    this.diamondCountEl.style.color = '#000000';
+    this.diamondCountEl.style.fontFamily = 'Space Grotesk, Inter, system-ui, sans-serif';
     this.diamondCountEl.textContent = state.player.specialPoints.toString();
 
     const diamondsLabel = document.createElement('div');
-    diamondsLabel.className = 'text-xs font-semibold theme-text-secondary uppercase tracking-wide';
+    diamondsLabel.className = 'text-xs font-semibold uppercase tracking-wide';
+    diamondsLabel.style.color = '#666666';
+    diamondsLabel.style.fontFamily = 'Inter, system-ui, sans-serif';
     diamondsLabel.textContent = 'Diamonds';
 
     const diamondsHint = document.createElement('div');
-    diamondsHint.className = 'text-xs theme-text-secondary mt-2';
+    diamondsHint.className = 'text-xs mt-2';
+    diamondsHint.style.color = '#999999';
+    diamondsHint.style.fontFamily = 'Inter, system-ui, sans-serif';
     diamondsHint.textContent = 'Earn by playing';
 
     diamondsCard.appendChild(diamondsIcon);
@@ -102,11 +120,13 @@ export class MenuPage extends BasePage {
 
     // Games Played Card
     const gamesCard = document.createElement('div');
-    gamesCard.className = 'theme-card rounded-lg p-3 sm:p-4 text-center transition-all duration-300 hover:shadow-lg hover:scale-105 shadow-sm';
+    gamesCard.className = 'rounded-lg p-3 sm:p-4 text-center transition-all duration-300 hover:shadow-lg hover:scale-105 shadow-sm';
+    gamesCard.style.backgroundColor = '#ffffff';
+    gamesCard.style.border = '2px solid #000000';
     gamesCard.innerHTML = `
-      <div class="text-3xl sm:text-4xl font-bold theme-text mb-1">${state.player.gamesPlayed}</div>
-      <div class="text-xs font-semibold theme-text-secondary uppercase tracking-wide">Games Played</div>
-      <div class="text-xs theme-text-secondary mt-2">On the grind</div>
+      <div class="text-3xl sm:text-4xl font-bold mb-1" style="color: #000000; font-family: 'Space Grotesk', Inter, system-ui, sans-serif;">${state.player.gamesPlayed}</div>
+      <div class="text-xs font-semibold uppercase tracking-wide" style="color: #666666; font-family: 'Inter', system-ui, sans-serif;">Games Played</div>
+      <div class="text-xs mt-2" style="color: #999999; font-family: 'Inter', system-ui, sans-serif;">On the grind</div>
     `;
     statsSection.appendChild(gamesCard);
 
@@ -117,7 +137,9 @@ export class MenuPage extends BasePage {
     modesSection.className = 'mb-6 sm:mb-8';
 
     const modesTitle = document.createElement('h2');
-    modesTitle.className = 'text-lg sm:text-xl font-bold theme-text mb-3 sm:mb-4 text-center';
+    modesTitle.className = 'text-lg sm:text-xl font-bold mb-3 sm:mb-4 text-center';
+    modesTitle.style.color = '#000000';
+    modesTitle.style.fontFamily = 'Space Grotesk, Inter, system-ui, sans-serif';
     modesTitle.textContent = 'Choose Your Mode';
     modesSection.appendChild(modesTitle);
 
@@ -131,6 +153,9 @@ export class MenuPage extends BasePage {
       fullWidth: true,
       onClick: () => Router.getInstance().navigate(ROUTES.DIFFICULTY),
     });
+    singlePlayerBtn.element.style.backgroundColor = '#000000';
+    singlePlayerBtn.element.style.color = '#ffffff';
+    singlePlayerBtn.element.style.fontFamily = 'Inter, system-ui, sans-serif';
     this.buttons.push(singlePlayerBtn);
     modesGrid.appendChild(singlePlayerBtn.element);
 
@@ -141,6 +166,10 @@ export class MenuPage extends BasePage {
       fullWidth: true,
       onClick: () => Router.getInstance().navigate(ROUTES.MULTIPLAYER),
     });
+    multiplayerBtn.element.style.backgroundColor = '#ffffff';
+    multiplayerBtn.element.style.color = '#000000';
+    multiplayerBtn.element.style.border = '2px solid #000000';
+    multiplayerBtn.element.style.fontFamily = 'Inter, system-ui, sans-serif';
     this.buttons.push(multiplayerBtn);
     modesGrid.appendChild(multiplayerBtn.element);
 
@@ -151,6 +180,9 @@ export class MenuPage extends BasePage {
       fullWidth: true,
       onClick: () => this.startDailyChallenge(),
     });
+    dailyChallengeBtn.element.style.backgroundColor = '#000000';
+    dailyChallengeBtn.element.style.color = '#ffffff';
+    dailyChallengeBtn.element.style.fontFamily = 'Inter, system-ui, sans-serif';
     this.buttons.push(dailyChallengeBtn);
     modesGrid.appendChild(dailyChallengeBtn.element);
 
@@ -161,6 +193,10 @@ export class MenuPage extends BasePage {
       fullWidth: true,
       onClick: () => this.startTimerAttack(),
     });
+    timerAttackBtn.element.style.backgroundColor = '#ffffff';
+    timerAttackBtn.element.style.color = '#000000';
+    timerAttackBtn.element.style.border = '2px solid #000000';
+    timerAttackBtn.element.style.fontFamily = 'Inter, system-ui, sans-serif';
     this.buttons.push(timerAttackBtn);
     modesGrid.appendChild(timerAttackBtn.element);
 
@@ -176,6 +212,10 @@ export class MenuPage extends BasePage {
       size: 'medium',
       onClick: () => Router.getInstance().navigate(ROUTES.SETTINGS),
     });
+    settingsBtn.element.style.backgroundColor = '#ffffff';
+    settingsBtn.element.style.color = '#000000';
+    settingsBtn.element.style.border = '2px solid #000000';
+    settingsBtn.element.style.fontFamily = 'Inter, system-ui, sans-serif';
     this.buttons.push(settingsBtn);
     actionSection.appendChild(settingsBtn.element);
 
@@ -184,6 +224,10 @@ export class MenuPage extends BasePage {
       size: 'medium',
       onClick: () => this.openShop(),
     });
+    shopBtn.element.style.backgroundColor = '#ffffff';
+    shopBtn.element.style.color = '#000000';
+    shopBtn.element.style.border = '2px solid #000000';
+    shopBtn.element.style.fontFamily = 'Inter, system-ui, sans-serif';
     this.buttons.push(shopBtn);
     actionSection.appendChild(shopBtn.element);
 
@@ -192,6 +236,10 @@ export class MenuPage extends BasePage {
       size: 'medium',
       onClick: () => this.showLeaderboard(),
     });
+    leaderboardBtn.element.style.backgroundColor = '#ffffff';
+    leaderboardBtn.element.style.color = '#000000';
+    leaderboardBtn.element.style.border = '2px solid #000000';
+    leaderboardBtn.element.style.fontFamily = 'Inter, system-ui, sans-serif';
     this.buttons.push(leaderboardBtn);
     actionSection.appendChild(leaderboardBtn.element);
 
@@ -200,6 +248,10 @@ export class MenuPage extends BasePage {
       size: 'small',
       onClick: () => this.logout(),
     });
+    logoutBtn.element.style.backgroundColor = '#f5f5f5';
+    logoutBtn.element.style.color = '#000000';
+    logoutBtn.element.style.border = '1px solid #cccccc';
+    logoutBtn.element.style.fontFamily = 'Inter, system-ui, sans-serif';
     this.buttons.push(logoutBtn);
     actionSection.appendChild(logoutBtn.element);
 
@@ -219,16 +271,17 @@ export class MenuPage extends BasePage {
    * Show coming soon modal
    */
   /**
-   * Logout user
+   * Simple logout - clear local state and navigate to menu
    */
   private async logout(): Promise<void> {
     try {
-      await authService.logout();
+      // Clear local state
+      stateManager.setState('status', GameStatus.ENTRY);
+      
+      // Navigate to menu (no login page anymore)
+      Router.getInstance().navigate(ROUTES.MENU);
     } catch (error) {
       console.error('Logout failed:', error);
-    } finally {
-      stateManager.setState('status', GameStatus.ENTRY);
-      Router.getInstance().navigate(ROUTES.ENTRY);
     }
   }
 

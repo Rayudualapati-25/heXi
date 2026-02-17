@@ -30,6 +30,10 @@ export class Block {
   public deleted: number = 0; // 0: active, 1: deleting, 2: deleted
   public removed: boolean = false;
   public initializing: boolean = true;
+  
+  // Indestructible block mechanics
+  public isIndestructible: boolean = false;
+  public supportCleared: boolean = false; // True when block beneath is removed
 
   // Physics
   public iter: number; // Speed multiplier
@@ -238,6 +242,22 @@ export class Block {
       this.tint -= 0.02 * this.dt;
       if (this.tint < 0) this.tint = 0;
     }
+    
+    // Draw indestructible glow overlay
+    if (this.isIndestructible && !this.supportCleared) {
+      const pulsePhase = (this.hexRef.ct * 0.05) % (Math.PI * 2);
+      const glowIntensity = 0.2 + Math.sin(pulsePhase) * 0.15; // 0.05 to 0.35
+      
+      ctx.fillStyle = '#fbbf24'; // Amber glow
+      ctx.globalAlpha = glowIntensity * this.opacity;
+      ctx.beginPath();
+      ctx.moveTo(Math.round(baseX + p1.x), Math.round(baseY + p1.y));
+      ctx.lineTo(Math.round(baseX + p2.x), Math.round(baseY + p2.y));
+      ctx.lineTo(Math.round(baseX + p3.x), Math.round(baseY + p3.y));
+      ctx.lineTo(Math.round(baseX + p4.x), Math.round(baseY + p4.y));
+      ctx.closePath();
+      ctx.fill();
+    }
 
     ctx.restore();
   }
@@ -249,6 +269,22 @@ export class Block {
     this.settings = settings;
     this.hexRef = hexRef;
     this.height = this.settings.blockHeight;
+  }
+  
+  /**
+   * Mark this block as indestructible
+   * Indestructible blocks ignore combo clears until support is removed
+   */
+  public makeIndestructible(): void {
+    this.isIndestructible = true;
+    this.supportCleared = false;
+  }
+  
+  /**
+   * Check if this block can be destroyed
+   */
+  public canBeDestroyed(): boolean {
+    return !this.isIndestructible || this.supportCleared;
   }
 }
 

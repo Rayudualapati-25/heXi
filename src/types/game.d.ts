@@ -88,11 +88,27 @@ export interface GroupScore {
   difficulty?: string;
 }
 
+export interface LobbyPlayer {
+  userId: string;
+  userName: string;
+  isReady: boolean;
+  isHost: boolean;
+}
+
+export interface MultiplayerLobbyState {
+  roomId: string | null;
+  roomCode: string | null;
+  players: LobbyPlayer[];
+  isInLobby: boolean;
+  localPlayerReady: boolean;
+}
+
 export interface GameState {
   status: GameStatus;
   player: PlayerState;
   game: GamePlayState;
   ui: UIState;
+  multiplayer: MultiplayerLobbyState;
 }
 
 export type StateEvent = 
@@ -108,7 +124,11 @@ export type StateEvent =
   | 'lifeLost'
   | 'lifeGained'
   | 'powerUpCollected'
-  | 'powerUpUsed';
+  | 'powerUpUsed'
+  | 'lobbyJoined'
+  | 'lobbyLeft'
+  | 'lobbyPlayersUpdated'
+  | 'lobbyMatchStarted';
 
 export type StateListener = (data?: any) => void;
 

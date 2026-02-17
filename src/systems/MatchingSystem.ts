@@ -62,6 +62,9 @@ export class MatchingSystem {
       }
     }
     
+    // Check and update indestructible blocks' support status
+    this.updateIndestructibleSupport(hex, sidesChanged);
+    
     // Calculate score with combo multiplier
     const now = currentFrame;
     if (now - this.lastComboFrame < this.comboTime) {
@@ -116,6 +119,9 @@ export class MatchingSystem {
         if (!blocks[curSide] || !blocks[curSide][curIndex]) continue;
         
         const block = blocks[curSide][curIndex];
+        
+        // Skip indestructible blocks that still have support
+        if (block.isIndestructible && !block.supportCleared) continue;
         
         // Check if same color, not already found, and not deleted
         if (
@@ -228,6 +234,39 @@ export class MatchingSystem {
    */
   public isComboActive(currentFrame: number): boolean {
     return currentFrame - this.lastComboFrame < this.comboTime;
+  }
+  
+  /**
+   * Update indestructible blocks' support status after blocks are cleared
+   * Only evaluates during combo resolution phase (performance optimization)
+   */
+  private updateIndestructibleSupport(hex: Hex, affectedSides: Set<number>): void {
+    const blocks = hex.blocks;
+    
+    // Only check lanes where blocks were deleted
+    for (const side of affectedSides) {
+      if (!blocks[side]) continue;
+      
+      // Scan from bottom to top (inner to outer)
+      for (let index = 0; index < blocks[side].length; index++) {
+        const block = blocks[side][index];
+        
+        // Skip non-indestructible or already cleared support
+        if (!block || !block.isIndestructible || block.supportCleared) continue;
+        
+        // Check if block directly beneath (at index-1) is missing or deleted
+        if (index === 0) {
+          // Block at hex surface - always has support
+          continue;
+        }
+        
+        const blockBeneath = blocks[side][index - 1];
+        if (!blockBeneath || blockBeneath.deleted !== 0) {
+          // Support removed - make destructible
+          block.supportCleared = true;
+        }
+      }
+    }
   }
 }
 

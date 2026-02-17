@@ -2,14 +2,45 @@
  * GroupManager - Appwrite-backed group/room system
  */
 
-import { databases } from '@lib/appwrite';
+import { databases, client } from '@lib/appwrite';
 import { ID, Query } from 'appwrite';
-import type { Group, GroupScore } from '../types/game';
+import type { Group, GroupScore, LobbyPlayer } from '../types/game';
+import type { RealtimeResponseEvent } from 'appwrite';
+
+interface LiveScore {
+  userId: string;
+  userName: string;
+  score: number;
+  timestamp: number;
+}
+
+type ScoreSyncCallback = (opponentScore: number, opponentName: string) => void;
+type DisconnectCallback = () => void;
+type LobbyUpdateCallback = (players: LobbyPlayer[]) => void;
+type MatchStartCallback = () => void;
 
 export class GroupManager {
   private databaseId: string;
   private groupsCollectionId: string;
   private groupScoresCollectionId: string;
+  
+  // Competitive score sync state
+  private liveScores: Map<string, LiveScore> = new Map();
+  private scoreUpdateInterval: number | null = null;
+  private realtimeUnsubscribe: (() => void) | null = null;
+  private currentUserId: string | null = null;
+  private currentGroupId: string | null = null;
+  private scoreSyncCallback: ScoreSyncCallback | null = null;
+  private disconnectCallback: DisconnectCallback | null = null;
+  private lastScoreEmitMs = 0;
+  private scoreEmitThrottleMs = 1000; // Emit at most once per second
+  
+  // Lobby state
+  private lobbyPlayers: Map<string, LobbyPlayer> = new Map();
+  private lobbyUpdateCallback: LobbyUpdateCallback | null = null;
+  private matchStartCallback: MatchStartCallback | null = null;
+  private lobbyUpdateInterval: number | null = null;
+  private storageListener: ((event: StorageEvent) => void) | null = null;
 
   constructor() {
     this.databaseId = import.meta.env.VITE_APPWRITE_DATABASE_ID;
@@ -247,6 +278,457 @@ export class GroupManager {
         difficulty: 'standard',
       }
     );
+  }
+  
+  /**
+   * Start competitive score sync for multiplayer session
+   * Emits local scores and receives opponent scores via realtime
+   */
+  public startScoreSync(
+    userId: string,
+    userName: string,
+    groupId: string,
+    onScoreUpdate: ScoreSyncCallback,
+    onDisconnect: DisconnectCallback
+  ): void {
+    this.currentUserId = userId;
+    this.currentGroupId = groupId;
+    this.scoreSyncCallback = onScoreUpdate;
+    this.disconnectCallback = onDisconnect;
+    this.liveScores.clear();
+    this.lastScoreEmitMs = 0;
+    
+    // Add self to live scores
+    this.liveScores.set(userId, {
+      userId,
+      userName,
+      score: 0,
+      timestamp: Date.now(),
+    });
+    
+    // Start periodic polling and cleanup
+    this.scoreUpdateInterval = window.setInterval(() => {
+      this.pollOpponentScores();
+      this.cleanupStaleScores();
+    }, 1500);
+    
+    console.log('[GroupManager] Score sync started for group:', groupId);
+  }
+  
+  /**
+   * Stop score sync and cleanup
+   */
+  public stopScoreSync(): void {
+    if (this.scoreUpdateInterval) {
+      window.clearInterval(this.scoreUpdateInterval);
+      this.scoreUpdateInterval = null;
+    }
+    
+    if (this.realtimeUnsubscribe) {
+      this.realtimeUnsubscribe();
+      this.realtimeUnsubscribe = null;
+    }
+    
+    // Cleanup localStorage
+    if (this.currentGroupId && this.currentUserId) {
+      const key = `score_${this.currentGroupId}_${this.currentUserId}`;
+      localStorage.removeItem(key);
+    }
+    
+    this.liveScores.clear();
+    this.currentUserId = null;
+    this.currentGroupId = null;
+    this.scoreSyncCallback = null;
+    this.disconnectCallback = null;
+    
+    console.log('[GroupManager] Score sync stopped');
+  }
+  
+  /**
+   * Emit local player score (throttled to reduce network load)
+   */
+  public emitScore(score: number): void {
+    if (!this.currentUserId || !this.currentGroupId) return;
+    
+    const now = Date.now();
+    if (now - this.lastScoreEmitMs < this.scoreEmitThrottleMs) return;
+    
+    this.lastScoreEmitMs = now;
+    
+    // Update local live score
+    const existing = this.liveScores.get(this.currentUserId);
+    if (existing) {
+      existing.score = score;
+      existing.timestamp = now;
+    }
+    
+    // Broadcast via localStorage (lightweight local sync)
+    this.broadcastScoreUpdate(score);
+  }
+  
+  /**
+   * Get highest opponent score (ghostScore)
+   */
+  public getGhostScore(): { score: number; name: string } | null {
+    if (!this.currentUserId) return null;
+    
+    let highestScore = 0;
+    let highestName = '';
+    
+    for (const [userId, liveScore] of this.liveScores) {
+      if (userId !== this.currentUserId && liveScore.score > highestScore) {
+        highestScore = liveScore.score;
+        highestName = liveScore.userName;
+      }
+    }
+    
+    return highestScore > 0 ? { score: highestScore, name: highestName } : null;
+  }
+  
+  /**
+   * Broadcast score via lightweight mechanism (localStorage)
+   */
+  private broadcastScoreUpdate(score: number): void {
+    const key = `score_${this.currentGroupId}_${this.currentUserId}`;
+    localStorage.setItem(key, JSON.stringify({
+      score,
+      timestamp: Date.now(),
+    }));
+  }
+  
+  /**
+   * Poll opponent scores from localStorage
+   */
+  private pollOpponentScores(): void {
+    if (!this.currentGroupId || !this.currentUserId || !this.scoreSyncCallback) return;
+    
+    const prefix = `score_${this.currentGroupId}_`;
+    const keys = Object.keys(localStorage).filter(k => k.startsWith(prefix) && !k.endsWith(this.currentUserId));
+    
+    let updated = false;
+    for (const key of keys) {
+      try {
+        const data = JSON.parse(localStorage.getItem(key) || '{}');
+        const userId = key.replace(prefix, '');
+        
+        if (data.score !== undefined) {
+          const existing = this.liveScores.get(userId);
+          const userName = existing?.userName || 'Opponent';
+          
+          this.liveScores.set(userId, {
+            userId,
+            userName,
+            score: data.score,
+            timestamp: data.timestamp,
+          });
+          
+          updated = true;
+        }
+      } catch (error) {
+        // Ignore parse errors
+      }
+    }
+    
+    // Notify callback with highest opponent score
+    if (updated) {
+      const ghost = this.getGhostScore();
+      if (ghost) {
+        this.scoreSyncCallback(ghost.score, ghost.name);
+      }
+    }
+  }
+  
+  /**
+   * Clean up stale scores (detect disconnects)
+   */
+  private cleanupStaleScores(): void {
+    const now = Date.now();
+    const staleThresholdMs = 10000; // 10 seconds without update = disconnected
+    
+    let hadOpponents = false;
+    let hasOpponents = false;
+    
+    for (const [userId, liveScore] of this.liveScores) {
+      if (userId === this.currentUserId) continue;
+      
+      hadOpponents = true;
+      
+      if (now - liveScore.timestamp > staleThresholdMs) {
+        this.liveScores.delete(userId);
+        console.log('[GroupManager] Opponent disconnected:', userId);
+        
+        // Clean up their localStorage entry
+        const key = `score_${this.currentGroupId}_${userId}`;
+        localStorage.removeItem(key);
+      } else {
+        hasOpponents = true;
+      }
+    }
+    
+    // Trigger disconnect callback if all opponents are gone
+    if (hadOpponents && !hasOpponents && this.disconnectCallback) {
+      console.log('[GroupManager] All opponents disconnected - converting to single-player');
+      this.disconnectCallback();
+    }
+  }
+  
+  /**
+   * ===== LOBBY SYSTEM =====
+   */
+  
+  /**
+   * Create lobby for a group
+   */
+  public async createLobby(
+    userId: string,
+    userName: string,
+    groupId: string,
+    roomCode: string,
+    onLobbyUpdate: LobbyUpdateCallback,
+    onMatchStart: MatchStartCallback
+  ): Promise<void> {
+    this.currentUserId = userId;
+    this.currentGroupId = groupId;
+    this.lobbyUpdateCallback = onLobbyUpdate;
+    this.matchStartCallback = onMatchStart;
+    this.lobbyPlayers.clear();
+    
+    // Add self as host
+    const hostPlayer: LobbyPlayer = {
+      userId,
+      userName,
+      isReady: false,
+      isHost: true,
+    };
+    this.lobbyPlayers.set(userId, hostPlayer);
+    
+    // Broadcast lobby state
+    this.broadcastLobbyState();
+    
+    // Setup event-driven updates via localStorage
+    this.setupLobbyStorageListener();
+    
+    console.log('[GroupManager] Lobby created:', roomCode);
+  }
+  
+  /**
+   * Join existing lobby
+   */
+  public async joinLobby(
+    userId: string,
+    userName: string,
+    groupId: string,
+    onLobbyUpdate: LobbyUpdateCallback,
+    onMatchStart: MatchStartCallback
+  ): Promise<void> {
+    this.currentUserId = userId;
+    this.currentGroupId = groupId;
+    this.lobbyUpdateCallback = onLobbyUpdate;
+    this.matchStartCallback = onMatchStart;
+    this.lobbyPlayers.clear();
+    
+    // Poll existing lobby state
+    await this.pollLobbyState();
+    
+    // Add self as player
+    const player: LobbyPlayer = {
+      userId,
+      userName,
+      isReady: false,
+      isHost: false,
+    };
+    this.lobbyPlayers.set(userId, player);
+    
+    // Broadcast updated state
+    this.broadcastLobbyState();
+    
+    // Setup event-driven updates
+    this.setupLobbyStorageListener();
+    
+    console.log('[GroupManager] Joined lobby:', groupId);
+  }
+  
+  /**
+   * Toggle player ready status
+   */
+  public toggleReady(): void {
+    if (!this.currentUserId) return;
+    
+    const player = this.lobbyPlayers.get(this.currentUserId);
+    if (!player) return;
+    
+    player.isReady = !player.isReady;
+    this.lobbyPlayers.set(this.currentUserId, player);
+    
+    // Broadcast updated state
+    this.broadcastLobbyState();
+    
+    console.log('[GroupManager] Player ready status:', player.isReady);
+  }
+  
+  /**
+   * Start match (host only)
+   */
+  public startMatch(): void {
+    if (!this.currentUserId || !this.currentGroupId) return;
+    
+    const player = this.lobbyPlayers.get(this.currentUserId);
+    if (!player || !player.isHost) {
+      console.warn('[GroupManager] Only host can start match');
+      return;
+    }
+    
+    // Check if all players are ready
+    const allReady = Array.from(this.lobbyPlayers.values()).every(p => p.isReady || p.isHost);
+    if (!allReady) {
+      console.warn('[GroupManager] Not all players are ready');
+      return;
+    }
+    
+    // Broadcast match start event
+    const key = `lobby_start_${this.currentGroupId}`;
+    localStorage.setItem(key, JSON.stringify({
+      timestamp: Date.now(),
+    }));
+    
+    // Trigger local callback
+    if (this.matchStartCallback) {
+      this.matchStartCallback();
+    }
+    
+    console.log('[GroupManager] Match started');
+  }
+  
+  /**
+   * Leave lobby
+   */
+  public leaveLobby(): void {
+    if (!this.currentUserId || !this.currentGroupId) return;
+    
+    // Remove self from lobby
+    this.lobbyPlayers.delete(this.currentUserId);
+    
+    // Broadcast updated state
+    this.broadcastLobbyState();
+    
+    // Cleanup
+    this.cleanupLobby();
+    
+    console.log('[GroupManager] Left lobby');
+  }
+  
+  /**
+   * Get current lobby players
+   */
+  public getLobbyPlayers(): LobbyPlayer[] {
+    return Array.from(this.lobbyPlayers.values());
+  }
+  
+  /**
+   * Broadcast lobby state via localStorage
+   */
+  private broadcastLobbyState(): void {
+    if (!this.currentGroupId || !this.currentUserId) return;
+    
+    const key = `lobby_${this.currentGroupId}_${this.currentUserId}`;
+    localStorage.setItem(key, JSON.stringify({
+      players: Array.from(this.lobbyPlayers.values()),
+      timestamp: Date.now(),
+    }));
+  }
+  
+  /**
+   * Poll lobby state from all players
+   */
+  private async pollLobbyState(): Promise<void> {
+    if (!this.currentGroupId) return;
+    
+    const prefix = `lobby_${this.currentGroupId}_`;
+    const keys = Object.keys(localStorage).filter(k => k.startsWith(prefix));
+    
+    const allPlayers = new Map<string, LobbyPlayer>();
+    
+    for (const key of keys) {
+      try {
+        const data = JSON.parse(localStorage.getItem(key) || '{}');
+        if (data.players && Array.isArray(data.players)) {
+          for (const player of data.players) {
+            allPlayers.set(player.userId, player);
+          }
+        }
+      } catch (error) {
+        // Ignore parse errors
+      }
+    }
+    
+    // Merge into local lobby state
+    for (const [userId, player] of allPlayers) {
+      if (userId !== this.currentUserId) {
+        this.lobbyPlayers.set(userId, player);
+      }
+    }
+    
+    // Notify callback
+    if (this.lobbyUpdateCallback) {
+      this.lobbyUpdateCallback(Array.from(this.lobbyPlayers.values()));
+    }
+  }
+  
+  /**
+   * Setup event-driven lobby updates via storage events
+   */
+  private setupLobbyStorageListener(): void {
+    if (this.storageListener) return;
+    
+    this.storageListener = (event: StorageEvent) => {
+      if (!this.currentGroupId) return;
+      
+      // Lobby state update
+      if (event.key?.startsWith(`lobby_${this.currentGroupId}_`)) {
+        this.pollLobbyState();
+      }
+      
+      // Match start event
+      if (event.key === `lobby_start_${this.currentGroupId}`) {
+        if (this.matchStartCallback) {
+          this.matchStartCallback();
+        }
+      }
+    };
+    
+    window.addEventListener('storage', this.storageListener);
+    
+    // Fallback: periodic polling (only as backup)
+    this.lobbyUpdateInterval = window.setInterval(() => {
+      this.pollLobbyState();
+    }, 2000);
+  }
+  
+  /**
+   * Cleanup lobby
+   */
+  private cleanupLobby(): void {
+    if (this.storageListener) {
+      window.removeEventListener('storage', this.storageListener);
+      this.storageListener = null;
+    }
+    
+    if (this.lobbyUpdateInterval) {
+      window.clearInterval(this.lobbyUpdateInterval);
+      this.lobbyUpdateInterval = null;
+    }
+    
+    // Cleanup localStorage
+    if (this.currentGroupId && this.currentUserId) {
+      const key = `lobby_${this.currentGroupId}_${this.currentUserId}`;
+      localStorage.removeItem(key);
+    }
+    
+    this.lobbyPlayers.clear();
+    this.currentUserId = null;
+    this.currentGroupId = null;
+    this.lobbyUpdateCallback = null;
+    this.matchStartCallback = null;
   }
 }
 

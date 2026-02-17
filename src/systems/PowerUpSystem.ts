@@ -77,6 +77,13 @@ export class PowerUpSystem {
     this.inventoryUI.clear();
   }
 
+  /**
+   * Clear active power-ups on field (for life loss)
+   */
+  public clearActivePowerUps(): void {
+    this.activePowerUps = [];
+  }
+
   public setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     if (!enabled) {
@@ -183,41 +190,51 @@ export class PowerUpSystem {
     const lanes = this.hex.blocks;
     if (!lanes.length) return;
 
-    let targetIndex = -1;
+    let destroyed = 0;
+    let isHeavyLine = false;
+
+    // Step 1: Search for a "heavy line" - complete horizontal line across all lanes
+    let heavyLineIndex = -1;
     for (let index = 0; index < 20; index++) {
       const complete = lanes.every(lane => lane.length > index && lane[index].deleted === 0);
       if (complete) {
-        targetIndex = index;
+        heavyLineIndex = index;
+        isHeavyLine = true;
         break;
       }
     }
 
-    if (targetIndex === -1) {
-      let maxIndex = -1;
+    if (heavyLineIndex !== -1) {
+      // Destroy the heavy line (complete horizontal line)
       for (const lane of lanes) {
-        if (lane.length > 0) {
-          maxIndex = Math.max(maxIndex, lane.length - 1);
+        const block = lane[heavyLineIndex];
+        if (block && block.deleted === 0) {
+          block.deleted = 1;
+          destroyed += 1;
         }
       }
-
-      if (maxIndex === -1) {
-        return;
+    } else {
+      // Step 2: No heavy line found - clear outer ring (outermost blocks from each lane)
+      for (const lane of lanes) {
+        if (lane.length > 0) {
+          // Find the outermost non-deleted block
+          for (let i = lane.length - 1; i >= 0; i--) {
+            const block = lane[i];
+            if (block && block.deleted === 0) {
+              block.deleted = 1;
+              destroyed += 1;
+              break; // Only destroy the outermost block per lane
+            }
+          }
+        }
       }
-
-      targetIndex = maxIndex;
     }
 
-    let destroyed = 0;
-    for (const lane of lanes) {
-      const block = lane[targetIndex];
-      if (block) {
-        block.deleted = 1;
-        destroyed += 1;
-      }
-    }
-
+    // Step 3: Grant bonus score
     if (destroyed > 0) {
-      const bonusScore = destroyed * 50;
+      // Heavy lines grant more score (100 per block), outer ring grants 50 per block
+      const scorePerBlock = isHeavyLine ? 100 : 50;
+      const bonusScore = destroyed * scorePerBlock;
       const currentScore = stateManager.getState().game.score;
       const newScore = currentScore + bonusScore;
       stateManager.updateGame({ score: newScore });

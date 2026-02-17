@@ -45,12 +45,12 @@ export const shopItems: Record<ShopItemId, ShopItem> = {
   [ShopItemId.HAMMER]: {
     id: ShopItemId.HAMMER,
     name: 'Hammer',
-    description: 'Clear blocks in danger zone',
+    description: 'Destroys heavy lines or clears outer ring',
     cost: 200,
     icon: 'HAMMER',
     category: 'powerup',
     maxQuantity: 3,
-    effect: 'Removes 3 blocks of the most common color',
+    effect: 'Destroys complete horizontal lines (100pts/block) or clears outer ring (50pts/block)',
   },
   [ShopItemId.SLOWMO]: {
     id: ShopItemId.SLOWMO,

@@ -7,11 +7,12 @@ import { Button } from '@ui/components/Button';
 import { Input } from '@ui/components/Input';
 import { Modal } from '@ui/components/Modal';
 import { GroupLeaderboardModal } from '@ui/modals/GroupLeaderboardModal';
+import { LobbyModal } from '@ui/modals/LobbyModal';
 import { Router } from '@/router';
 import { stateManager } from '@core/StateManager';
 import { ROUTES } from '@core/constants';
 import { GroupManager } from '@network/GroupManager';
-import type { Group } from '../types/game';
+import type { Group, LobbyPlayer } from '../types/game';
 
 type View = 'list' | 'create' | 'join';
 
@@ -21,6 +22,8 @@ export class MultiplayerPage extends BasePage {
   private groups: Group[] = [];
   private contentContainer!: HTMLDivElement;
   private buttons: Button[] = [];
+  private lobbyModal: LobbyModal | null = null;
+  private currentLobbyGroup: Group | null = null;
 
   public render(): void {
     const container = this.initPageLayout({
@@ -267,8 +270,168 @@ export class MultiplayerPage extends BasePage {
 
 
   private playGroup(group: Group): void {
-    stateManager.updateUI({ currentGroupId: group.$id, currentGameMode: 'multiplayerRace', multiplayerMode: 'race' });
+    const state = stateManager.getState();
+    if (!state.player.id) return;
+    
+    this.currentLobbyGroup = group;
+    
+    // Determine if creating or joining lobby
+    const isHost = group.createdBy === state.player.id;
+    
+    if (isHost) {
+      this.createLobby(group);
+    } else {
+      this.joinLobby(group);
+    }
+  }
+  
+  private async createLobby(group: Group): Promise<void> {
+    const state = stateManager.getState();
+    if (!state.player.id) return;
+    
+    try {
+      // Setup lobby
+      await this.groupManager.createLobby(
+        state.player.id,
+        state.player.name,
+        group.$id,
+        group.roomCode,
+        (players: LobbyPlayer[]) => this.handleLobbyUpdate(players),
+        () => this.handleMatchStart()
+      );
+      
+      // Update state
+      stateManager.updateMultiplayer({
+        roomId: group.$id,
+        roomCode: group.roomCode,
+        players: this.groupManager.getLobbyPlayers(),
+        isInLobby: true,
+        localPlayerReady: false,
+      });
+      
+      // Open lobby modal
+      this.openLobbyModal(group, true);
+      
+    } catch (error: any) {
+      this.showMessage('Error', error.message || 'Failed to create lobby');
+    }
+  }
+  
+  private async joinLobby(group: Group): Promise<void> {
+    const state = stateManager.getState();
+    if (!state.player.id) return;
+    
+    try {
+      // Join lobby
+      await this.groupManager.joinLobby(
+        state.player.id,
+        state.player.name,
+        group.$id,
+        (players: LobbyPlayer[]) => this.handleLobbyUpdate(players),
+        () => this.handleMatchStart()
+      );
+      
+      // Update state
+      stateManager.updateMultiplayer({
+        roomId: group.$id,
+        roomCode: group.roomCode,
+        players: this.groupManager.getLobbyPlayers(),
+        isInLobby: true,
+        localPlayerReady: false,
+      });
+      
+      // Open lobby modal
+      this.openLobbyModal(group, false);
+      
+    } catch (error: any) {
+      this.showMessage('Error', error.message || 'Failed to join lobby');
+    }
+  }
+  
+  private openLobbyModal(group: Group, isHost: boolean): void {
+    const state = stateManager.getState();
+    
+    this.lobbyModal = new LobbyModal({
+      roomCode: group.roomCode,
+      players: state.multiplayer.players,
+      isHost,
+      localPlayerReady: state.multiplayer.localPlayerReady,
+      onToggleReady: () => this.toggleReady(),
+      onStartMatch: () => this.startMatch(),
+      onLeaveLobby: () => this.leaveLobby(),
+    });
+    
+    this.lobbyModal.open();
+  }
+  
+  private toggleReady(): void {
+    this.groupManager.toggleReady();
+    
+    const currentReady = stateManager.getState().multiplayer.localPlayerReady;
+    stateManager.updateMultiplayer({ localPlayerReady: !currentReady });
+    
+    // Update lobby modal
+    if (this.lobbyModal) {
+      const players = this.groupManager.getLobbyPlayers();
+      this.lobbyModal.update(players, !currentReady);
+    }
+  }
+  
+  private startMatch(): void {
+    this.groupManager.startMatch();
+    // handleMatchStart will be called via callback
+  }
+  
+  private handleLobbyUpdate(players: LobbyPlayer[]): void {
+    // Update state
+    stateManager.updateMultiplayer({ players });
+    
+    // Update lobby modal
+    if (this.lobbyModal) {
+      const localReady = stateManager.getState().multiplayer.localPlayerReady;
+      this.lobbyModal.update(players, localReady);
+    }
+  }
+  
+  private handleMatchStart(): void {
+    console.log('[MultiplayerPage] Match starting!');
+    
+    // Close lobby modal
+    if (this.lobbyModal) {
+      this.lobbyModal.close();
+      this.lobbyModal = null;
+    }
+    
+    // Set game mode and navigate to difficulty selection
+    const groupId = stateManager.getState().multiplayer.roomId;
+    stateManager.updateUI({ 
+      currentGroupId: groupId ?? undefined, 
+      currentGameMode: 'multiplayerRace', 
+      multiplayerMode: 'race' 
+    });
+    
     Router.getInstance().navigate(ROUTES.DIFFICULTY);
+  }
+  
+  private leaveLobby(): void {
+    this.groupManager.leaveLobby();
+    
+    // Reset state
+    stateManager.updateMultiplayer({
+      roomId: null,
+      roomCode: null,
+      players: [],
+      isInLobby: false,
+      localPlayerReady: false,
+    });
+    
+    // Close modal
+    if (this.lobbyModal) {
+      this.lobbyModal.close();
+      this.lobbyModal = null;
+    }
+    
+    this.currentLobbyGroup = null;
   }
 
   private confirmLeaveGroup(group: Group): void {
@@ -351,6 +514,13 @@ export class MultiplayerPage extends BasePage {
   }
 
   public onUnmount(): void {
+    // Cleanup lobby if active
+    if (this.lobbyModal) {
+      this.groupManager.leaveLobby();
+      this.lobbyModal.close();
+      this.lobbyModal = null;
+    }
+    
     this.buttons.forEach((btn) => btn.destroy());
     this.buttons = [];
   }

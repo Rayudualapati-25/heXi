@@ -4,7 +4,6 @@
  */
 
 import type { BasePage } from '@/pages/BasePage';
-import { authService } from '@services/AuthService';
 import { stateManager } from '@core/StateManager';
 import { ROUTES } from '@core/constants';
 import { audioManager } from '@/managers/AudioManager';
@@ -95,15 +94,7 @@ export class Router {
       return;
     }
 
-    // Check authentication requirement
-    if (route.requiresAuth) {
-      const isAuthenticated = await authService.isAuthenticated();
-      if (!isAuthenticated) {
-        console.warn('Authentication required, redirecting to login');
-        this.navigate('/'); // Redirect to login
-        return;
-      }
-    }
+    // Authentication check removed - all routes are now accessible
 
     const uiState = stateManager.getState().ui;
     audioManager.setMusicMuted(uiState.isMusicMuted);
@@ -113,10 +104,8 @@ export class Router {
 
     if (path === ROUTES.GAME) {
       audioManager.playGameMusic();
-    } else if (route.requiresAuth) {
-      audioManager.playMenuMusic();
     } else {
-      audioManager.stopMusic();
+      audioManager.playMenuMusic();
     }
 
     // Unmount current page

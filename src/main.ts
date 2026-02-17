@@ -5,65 +5,17 @@
 
 import './tailwind.css';
 import { Router } from './router';
-import { LoginPage } from './pages/LoginPage';
-import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { MenuPage } from './pages/MenuPage';
 import { MultiplayerPage } from './pages/MultiplayerPage';
 import { DifficultyPage } from './pages/DifficultyPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { GamePage } from './pages/GamePage';
 import { ROUTES } from './core/constants';
-import { authService } from '@services/AuthService';
-import { appwriteClient } from '@network/AppwriteClient';
 import { stateManager } from '@core/StateManager';
-import { ThemeName, getThemeOrDefault, normalizeThemesUnlocked } from '@config/themes';
+import { ThemeName } from '@config/themes';
 import { createEmptyInventory } from '@config/shopItems';
 import { themeManager } from '@/managers/ThemeManager';
 
-/**
- * Restore user session if exists
- */
-async function restoreSession(): Promise<boolean> {
-  try {
-    const session = await authService.getCurrentSession();
-    
-    if (session) {
-      // User is logged in, load their data
-      const user = await appwriteClient.getUserById(session.userId);
-      
-      if (user) {
-        // Restore state
-        const resolvedThemes = normalizeThemesUnlocked(user.themesUnlocked);
-        const resolvedTheme = getThemeOrDefault(user.selectedTheme).id;
-        if (!resolvedThemes.includes(resolvedTheme)) {
-          resolvedThemes.push(resolvedTheme);
-        }
-
-        stateManager.updatePlayer({
-          id: user.userId,
-          name: user.name,
-          highScore: user.singlePlayerHighScore,
-          specialPoints: user.totalDiamonds,
-          gamesPlayed: user.gamesPlayed,
-          totalPlayTime: user.totalPlayTime,
-          themesUnlocked: resolvedThemes as ThemeName[],
-          selectedTheme: resolvedTheme as ThemeName,
-          inventory: user.inventory ?? createEmptyInventory(),
-        });
-
-        themeManager.applyTheme(resolvedTheme);
-        
-        console.log('Session restored for:', user.name);
-        return true;
-      }
-    }
-    
-    return false;
-  } catch (error) {
-    console.error('Failed to restore session:', error);
-    return false;
-  }
-}
 
 /**
  * Initialize the application
@@ -82,60 +34,52 @@ async function init(): Promise<void> {
   //Register routes
   router.registerRoutes([
     {
-      path: ROUTES.ENTRY,
-      page: LoginPage,
-      requiresAuth: false,
-    },
-    {
-      path: ROUTES.RESET_PASSWORD,
-      page: ResetPasswordPage,
-      requiresAuth: false,
-    },
-    {
       path: ROUTES.MENU,
       page: MenuPage,
-      requiresAuth: true,
+      requiresAuth: false,
     },
     {
       path: ROUTES.DIFFICULTY,
       page: DifficultyPage,
-      requiresAuth: true,
+      requiresAuth: false,
     },
     {
       path: ROUTES.GAME,
       page: GamePage,
-      requiresAuth: true,
+      requiresAuth: false,
     },
     {
       path: ROUTES.SETTINGS,
       page: SettingsPage,
-      requiresAuth: true,
+      requiresAuth: false,
     },
     {
       path: ROUTES.MULTIPLAYER,
       page: MultiplayerPage,
-      requiresAuth: true,
+      requiresAuth: false,
     },
   ]);
 
-  // Restore session and navigate appropriately
-  const sessionRestored = await restoreSession();
+  // Set default theme
+  const cachedTheme = themeManager.getCurrentTheme();
+  stateManager.updatePlayer({ 
+    id: 'local-player',
+    name: 'Player',
+    highScore: 0,
+    specialPoints: 500,
+    gamesPlayed: 0,
+    totalPlayTime: 0,
+    themesUnlocked: [ThemeName.CLASSIC],
+    selectedTheme: cachedTheme,
+    inventory: createEmptyInventory(),
+  });
+  themeManager.applyTheme(cachedTheme);
 
-  if (!sessionRestored) {
-    const cachedTheme = themeManager.getCurrentTheme();
-    stateManager.updatePlayer({ selectedTheme: cachedTheme });
-    themeManager.applyTheme(cachedTheme);
-  }
-
-  // Navigate to current route or appropriate default page
+  // Navigate to current route or menu as default
   const currentPath = window.location.hash.slice(1) || '/';
   if (currentPath === '/') {
-    // If at root path, navigate based on authentication status
-    if (sessionRestored) {
-      router.navigate(ROUTES.MENU);
-    } else {
-      router.navigate(ROUTES.ENTRY);
-    }
+    // If at root path, navigate to menu
+    router.navigate(ROUTES.MENU);
   } else {
     // Trigger route change for the current path
     window.dispatchEvent(new Event('hashchange'));

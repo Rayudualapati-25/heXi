@@ -1,7 +1,21 @@
 ﻿/**
- * Timer Attack Mode
+ * Timer Attack Mode - Enhanced with Runtime System
  * Race against the clock - survive for 90 seconds and maximize score
+ * 
+ * FEATURES:
+ * - Adaptive pacing ramp (early/mid/final phases)
+ * - Burst windows every 20 seconds
+ * - Score multiplier during final phase (last 10s)
  */
+
+export type TimerPhase = 'early' | 'mid' | 'final';
+
+export interface TimerRuntimeCallbacks {
+  onPhaseChange?: (phase: TimerPhase, multipliers: { speed: number; spawn: number }) => void;
+  onBurstStart?: (multipliers: { speed: number; spawn: number }) => void;
+  onBurstEnd?: () => void;
+  onScoreMultiplier?: (multiplier: number) => void;
+}
 
 class TimerAttackMode {
   private isActive: boolean = false;
@@ -14,11 +28,21 @@ class TimerAttackMode {
   private bestScore: number;
   private totalBonusSeconds = 0;
   
-  constructor(timeLimit: number = 90) {
+  // Runtime phase system
+  private currentPhase: TimerPhase = 'early';
+  private burstActive: boolean = false;
+  private lastBurstTime: number = 0;
+  private burstInterval: number = 20; // Burst every 20 seconds
+  private burstDuration: number = 5; // 5 second burst windows
+  private scoreMultiplier: number = 1;
+  private callbacks: TimerRuntimeCallbacks;
+  
+  constructor(timeLimit: number = 90, callbacks?: TimerRuntimeCallbacks) {
     this.timeLimit = timeLimit;
     this.timeRemaining = this.timeLimit;
     this.bestTime = this.loadBestTime();
     this.bestScore = this.loadBestScore();
+    this.callbacks = callbacks || {};
     this.init();
   }
 
@@ -56,6 +80,10 @@ class TimerAttackMode {
     this.isActive = true;
     this.timeRemaining = this.timeLimit;
     this.totalBonusSeconds = 0;
+    this.currentPhase = 'early';
+    this.burstActive = false;
+    this.lastBurstTime = 0;
+    this.scoreMultiplier = 1;
     console.log('Timer Attack Mode ACTIVATED');
     
     // Show mode indicator
@@ -65,6 +93,10 @@ class TimerAttackMode {
   deactivate() {
     this.isActive = false;
     this.stop();
+    this.currentPhase = 'early';
+    this.burstActive = false;
+    this.lastBurstTime = 0;
+    this.scoreMultiplier = 1;
     this.hideModeIndicator();
     console.log('Timer Attack Mode deactivated');
   }
@@ -76,6 +108,10 @@ class TimerAttackMode {
     this.timeRemaining = this.timeLimit;
     this.totalBonusSeconds = 0;
     this.isPaused = false;
+    this.currentPhase = 'early';
+    this.burstActive = false;
+    this.lastBurstTime = 0;
+    this.scoreMultiplier = 1;
 
     // Start countdown
     this.timerId = setInterval(() => {
@@ -112,6 +148,11 @@ class TimerAttackMode {
     const elapsed = (Date.now() - this.startTime) / 1000;
     this.timeRemaining = Math.max(0, this.timeLimit + this.totalBonusSeconds - elapsed);
 
+    // Update runtime phase system
+    this.updatePhase(elapsed);
+    this.updateBurstWindows(elapsed);
+    this.updateScoreMultiplier();
+
     // Update UI
     this.updateTimerDisplay();
 
@@ -136,6 +177,102 @@ class TimerAttackMode {
     // Dispatch time up event
     window.dispatchEvent(new CustomEvent('timerModeTimeUp', {
       detail: { score: finalScore, survived: true }
+    }));
+  }
+
+  /**
+   * Update runtime phase based on elapsed time
+   * Early: 0-30s (1.0x speed, 1.0x spawn)
+   * Mid: 30-80s (1.2x speed, 1.15x spawn)
+   * Final: 80-90s (1.4x speed, 1.3x spawn)
+   */
+  private updatePhase(elapsed: number): void {
+    let newPhase: TimerPhase = 'early';
+    let speedMultiplier = 1.0;
+    let spawnMultiplier = 1.0;
+
+    if (elapsed >= 80) {
+      newPhase = 'final';
+      speedMultiplier = 1.4;
+      spawnMultiplier = 1.3;
+    } else if (elapsed >= 30) {
+      newPhase = 'mid';
+      speedMultiplier = 1.2;
+      spawnMultiplier = 1.15;
+    }
+
+    if (newPhase !== this.currentPhase) {
+      this.currentPhase = newPhase;
+      console.log(`[TimerAttack] Phase changed to: ${newPhase}`);
+      this.callbacks.onPhaseChange?.(newPhase, {
+        speed: speedMultiplier,
+        spawn: spawnMultiplier,
+      });
+    }
+  }
+
+  /**
+   * Burst windows every 20 seconds
+   * During burst: 1.6x speed, 1.5x spawn for 5 seconds
+   */
+  private updateBurstWindows(elapsed: number): void {
+    const timeSinceLastBurst = elapsed - this.lastBurstTime;
+
+    // Start new burst window every 20 seconds
+    if (timeSinceLastBurst >= this.burstInterval && !this.burstActive) {
+      this.burstActive = true;
+      this.lastBurstTime = elapsed;
+      console.log(`[TimerAttack] Burst window started at ${elapsed.toFixed(1)}s`);
+      
+      this.callbacks.onBurstStart?.({
+        speed: 1.6,
+        spawn: 1.5,
+      });
+      
+      // Show burst notification
+      this.showBurstNotification();
+    }
+
+    // End burst window after duration
+    if (this.burstActive && timeSinceLastBurst >= this.burstDuration) {
+      this.burstActive = false;
+      console.log(`[TimerAttack] Burst window ended`);
+      this.callbacks.onBurstEnd?.();
+    }
+  }
+
+  /**
+   * Score multiplier during final phase (last 10 seconds)
+   */
+  private updateScoreMultiplier(): void {
+    const newMultiplier = this.timeRemaining <= 10 ? 2.0 : 1.0;
+    
+    if (newMultiplier !== this.scoreMultiplier) {
+      this.scoreMultiplier = newMultiplier;
+      console.log(`[TimerAttack] Score multiplier: ${this.scoreMultiplier}x`);
+      this.callbacks.onScoreMultiplier?.(this.scoreMultiplier);
+      
+      if (this.scoreMultiplier > 1) {
+        this.showMultiplierNotification();
+      }
+    }
+  }
+
+  /**
+   * Show burst window notification
+   */
+  private showBurstNotification(): void {
+    window.dispatchEvent(new CustomEvent('timerBurst', {
+      detail: { message: 'BURST MODE!', color: '#f59e0b' }
+    }));
+  }
+
+  /**
+   * Show score multiplier notification
+   */
+  private showMultiplierNotification(): void {
+    window.dispatchEvent(new CustomEvent('timerMultiplier', {
+      detail: { message: 'FINAL SPRINT - 2X SCORE!', color: '#10b981' }
     }));
   }
 
@@ -307,6 +444,40 @@ class TimerAttackMode {
 
   getBestTime(): number | null {
     return this.bestTime;
+  }
+
+  getCurrentPhase(): TimerPhase {
+    return this.currentPhase;
+  }
+
+  isBurstActive(): boolean {
+    return this.burstActive;
+  }
+
+  getScoreMultiplier(): number {
+    return this.scoreMultiplier;
+  }
+
+  /**
+   * Get phase multipliers for current phase
+   */
+  getPhaseMultipliers(): { speed: number; spawn: number } {
+    switch (this.currentPhase) {
+      case 'early':
+        return { speed: 1.0, spawn: 1.0 };
+      case 'mid':
+        return { speed: 1.2, spawn: 1.15 };
+      case 'final':
+        return { speed: 1.4, spawn: 1.3 };
+    }
+  }
+
+  /**
+   * Get burst multipliers (only when burst is active)
+   */
+  getBurstMultipliers(): { speed: number; spawn: number } | null {
+    if (!this.burstActive) return null;
+    return { speed: 1.6, spawn: 1.5 };
   }
 }
 

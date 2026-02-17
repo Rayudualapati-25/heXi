@@ -50,6 +50,9 @@ export class Hex {
   public comboTime: number = 1;
   public lastRotate: number = Date.now();
   public playThrough: number = 0;
+  
+  // Dynamic rotation speed
+  private rotationThrottleMs: number = 75; // Base throttle delay in ms
 
   // Settings reference
   private settings: {
@@ -194,12 +197,12 @@ export class Hex {
 
   /**
    * Rotate the hex clockwise (1) or counter-clockwise (-1)
-   * Original Hextris implementation with throttling
+   * Original Hextris implementation with dynamic throttling based on score
    */
   public rotate(direction: 1 | -1): void {
-    // Throttle rotations (75ms minimum between rotations on non-mobile)
+    // Dynamic throttle rotation speed (lower throttle = faster rotation)
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    if (!isMobile && Date.now() - this.lastRotate < 75) {
+    if (!isMobile && Date.now() - this.lastRotate < this.rotationThrottleMs) {
       return;
     }
 
@@ -260,7 +263,7 @@ export class Hex {
     // Get theme colors
     const themeConfig = themes[theme];
     const hexFillColor = themeConfig.colors.hex;
-    const hexStrokeColor = themeConfig.colors.hexStroke;
+    // const hexStrokeColor = themeConfig.colors.hexStroke; // No longer used
 
     // Draw hexagon - original has minimal shadow
     ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
@@ -269,8 +272,9 @@ export class Hex {
     ctx.shadowOffsetY = 2;
     
     ctx.fillStyle = hexFillColor;
-    ctx.strokeStyle = hexStrokeColor;
-    ctx.lineWidth = 4 * this.settings.scale;
+    // Remove stroke to eliminate outline
+    // ctx.strokeStyle = hexStrokeColor;
+    // ctx.lineWidth = 4 * this.settings.scale;
 
     ctx.beginPath();
     
@@ -293,7 +297,7 @@ export class Hex {
     }
     ctx.closePath();
     ctx.fill();
-    ctx.stroke();
+    // ctx.stroke();
 
     ctx.restore();
 
@@ -410,6 +414,21 @@ export class Hex {
    */
   public setSettings(settings: any): void {
     this.settings = settings;
+  }
+
+  /**
+   * Set rotation throttle delay (lower = faster rotation)
+   * @param throttleMs - Minimum milliseconds between rotations
+   */
+  public setRotationThrottle(throttleMs: number): void {
+    this.rotationThrottleMs = Math.max(15, throttleMs); // Min 15ms to prevent input overflow
+  }
+
+  /**
+   * Get current rotation throttle
+   */
+  public getRotationThrottle(): number {
+    return this.rotationThrottleMs;
   }
 }
 
