@@ -2206,6 +2206,13 @@ export class GamePage extends BasePage {
     audioManager.setMusicVolume(uiState.musicVolume);
     audioManager.setSfxVolume(uiState.sfxVolume);
     
+    // Reset score to 0 for multiplayer matches
+    const isMultiplayer = uiState.currentGameMode?.startsWith('multiplayer');
+    if (isMultiplayer) {
+      console.log('[GamePage] Resetting score for multiplayer match');
+      stateManager.updateGame({ score: 0 });
+    }
+    
     // Set game status to playing
     stateManager.setState('status', GameStatus.PLAYING);
     

@@ -10,6 +10,8 @@ import { ROUTES } from '@core/constants';
 import { DifficultyLevel, difficultyConfigs, difficultyOrder } from '@config/difficulty';
 import { Button } from '@ui/components/Button';
 import { RoomManager } from '@network/RoomManager';
+import { client } from '@lib/appwrite';
+import { appwriteConfig } from '@/config';
 
 export class DifficultyPage extends BasePage {
   private selectedDifficulty: DifficultyLevel = DifficultyLevel.STANDARD;
@@ -293,11 +295,26 @@ export class DifficultyPage extends BasePage {
     Router.getInstance().navigate(ROUTES.GAME, { difficulty: this.selectedDifficulty });
   }
 
-  public onMount(): void {
+  public async onMount(): Promise<void> {
     this.element.classList.add('animate-fade-in');
     
-    // If non-host in multiplayer, subscribe to room changes
+    // If non-host in multiplayer, check if difficulty is already set and subscribe
     if (this.isMultiplayer && !this.isHost && this.roomManager) {
+      // Check if difficulty already set (in case host selected while we were loading)
+      try {
+        const existingDifficulty = await this.roomManager.getDifficulty();
+        if (existingDifficulty) {
+          console.log('[DifficultyPage] Difficulty already set:', existingDifficulty);
+          const difficulty = existingDifficulty as DifficultyLevel;
+          stateManager.updateGame({ difficulty });
+          Router.getInstance().navigate(ROUTES.GAME, { difficulty });
+          return;
+        }
+      } catch (err) {
+        console.warn('[DifficultyPage] Could not check existing difficulty:', err);
+      }
+      
+      // Subscribe to future difficulty changes
       this.subscribeToDifficultyChanges();
     }
   }
@@ -318,36 +335,40 @@ export class DifficultyPage extends BasePage {
    * Subscribe to difficulty changes (for non-host players)
    */
   private subscribeToDifficultyChanges(): void {
-    if (!this.roomManager) return;
+    if (!this.roomManager) {
+      console.error('[DifficultyPage] No room manager!');
+      return;
+    }
     
     const roomId = this.roomManager.getRoomId();
-    if (!roomId) return;
+    if (!roomId) {
+      console.error('[DifficultyPage] No room ID!');
+      return;
+    }
 
-    // Import appwrite client dynamically
-    import('@network/AppwriteClient').then(({ appwriteClient }) => {
-      import('@lib/appwrite').then(({ client }) => {
-        import('@/config').then(({ appwriteConfig }) => {
-          const DB = appwriteConfig.databaseId;
-          const ROOMS_COL = appwriteConfig.roomsCollectionId;
-          
-          // Subscribe to room document changes
-          const unsubscribe = client.subscribe(
-            `databases.${DB}.collections.${ROOMS_COL}.documents.${roomId}`,
-            (response) => {
-              const payload = response.payload as any;
-              if (payload.difficulty) {
-                // Host has selected difficulty, navigate to game
-                const difficulty = payload.difficulty as DifficultyLevel;
-                stateManager.updateGame({ difficulty });
-                Router.getInstance().navigate(ROUTES.GAME, { difficulty });
-              }
-            },
-          );
-          
-          this.difficultySubscription = unsubscribe;
-        });
-      });
-    });
+    console.log('[DifficultyPage] Subscribing to difficulty changes for room:', roomId);
+    
+    const DB = appwriteConfig.databaseId;
+    const ROOMS_COL = appwriteConfig.roomsCollectionId;
+    
+    // Subscribe to room document changes
+    const unsubscribe = client.subscribe(
+      `databases.${DB}.collections.${ROOMS_COL}.documents.${roomId}`,
+      (response) => {
+        console.log('[DifficultyPage] Received room update:', response.events);
+        const payload = response.payload as any;
+        if (payload.difficulty) {
+          console.log('[DifficultyPage] Host selected difficulty:', payload.difficulty);
+          // Host has selected difficulty, navigate to game
+          const difficulty = payload.difficulty as DifficultyLevel;
+          stateManager.updateGame({ difficulty });
+          Router.getInstance().navigate(ROUTES.GAME, { difficulty });
+        }
+      },
+    );
+    
+    this.difficultySubscription = unsubscribe;
+    console.log('[DifficultyPage] Subscription active');
   }
 }
 
