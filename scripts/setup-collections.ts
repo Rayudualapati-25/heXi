@@ -101,6 +101,7 @@ async function main() {
       await databases.createStringAttribute(DATABASE_ID, roomsId, 'status', 20, true);
       await databases.createIntegerAttribute(DATABASE_ID, roomsId, 'maxPlayers', true);
       await databases.createIntegerAttribute(DATABASE_ID, roomsId, 'playerCount', true);
+      await databases.createStringAttribute(DATABASE_ID, roomsId, 'difficulty', 50, false); // Optional difficulty field
       console.log('   ✅ Attributes added');
 
       // Wait for attributes to be processed

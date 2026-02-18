@@ -10,7 +10,8 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "setup:appwrite": "tsx scripts/setup-appwrite.ts",
-    "setup:collections": "tsx scripts/setup-collections.ts"
+    "setup:collections": "tsx scripts/setup-collections.ts",
+    "migrate:difficulty": "tsx scripts/add-difficulty-attribute.ts"
   },
   "keywords": [
     "game",

@@ -585,29 +585,49 @@ export class RoomManager {
    */
   async setDifficulty(difficulty: string): Promise<void> {
     if (!this.currentRoomId || !this.localId) {
+      console.error('[RoomManager] Cannot set difficulty: no room or player ID');
       throw new Error('No active room');
     }
 
-    // Verify we are host
-    const room = await databases.getDocument(DB, ROOMS_COL, this.currentRoomId);
-    if (room.hostId !== this.localId) {
-      throw new Error('Only the host can set difficulty');
-    }
+    try {
+      console.log('[RoomManager] Setting difficulty:', difficulty, 'for room:', this.currentRoomId);
+      
+      // Verify we are host
+      const room = await databases.getDocument(DB, ROOMS_COL, this.currentRoomId);
+      if (room.hostId !== this.localId) {
+        throw new Error('Only the host can set difficulty');
+      }
 
-    // Update room with difficulty
-    await databases.updateDocument(DB, ROOMS_COL, this.currentRoomId, {
-      difficulty,
-    });
+      // Update room with difficulty
+      await databases.updateDocument(DB, ROOMS_COL, this.currentRoomId, {
+        difficulty,
+      });
+      
+      console.log('[RoomManager] Difficulty set successfully:', difficulty);
+    } catch (error: any) {
+      console.error('[RoomManager] Error setting difficulty:', error.message || error);
+      throw error;
+    }
   }
 
   /**
    * Get current room difficulty
    */
   async getDifficulty(): Promise<string | null> {
-    if (!this.currentRoomId) return null;
+    if (!this.currentRoomId) {
+      console.log('[RoomManager] No room ID when getting difficulty');
+      return null;
+    }
 
-    const room = await databases.getDocument(DB, ROOMS_COL, this.currentRoomId);
-    return (room as any).difficulty || null;
+    try {
+      const room = await databases.getDocument(DB, ROOMS_COL, this.currentRoomId);
+      const difficulty = (room as any).difficulty || null;
+      console.log('[RoomManager] Got difficulty from room:', difficulty);
+      return difficulty;
+    } catch (error: any) {
+      console.error('[RoomManager] Error getting difficulty:', error.message || error);
+      return null;
+    }
   }
 
   /**
