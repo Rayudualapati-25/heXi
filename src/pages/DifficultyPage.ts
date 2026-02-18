@@ -18,6 +18,8 @@ export class DifficultyPage extends BasePage {
   private roomManager: RoomManager | null = null;
   private isMultiplayer = false;
   private isHost = false;
+  private waitingMessage: HTMLElement | null = null;
+  private difficultySubscription: (() => void) | null = null;
   private difficultySubscription: (() => void) | null = null;
   private waitingMessage: HTMLElement | null = null;
 

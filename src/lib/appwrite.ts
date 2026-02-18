@@ -26,15 +26,28 @@ async function ensureSession(): Promise<void> {
   sessionReady = (async () => {
     try {
       // Check if there's already a session
-      await account.get();
+      const session = await account.get();
+      console.log('[Appwrite] Active session found:', session.$id);
     } catch {
       try {
         // No session — create anonymous session
-        await account.createAnonymousSession();
-        console.log('Anonymous session created');
+        const newSession = await account.createAnonymousSession();
+        console.log('[Appwrite] Anonymous session created:', newSession.$id);
       } catch (anonErr: any) {
         // If anonymous session creation also fails, it might be a platform/network issue
-        console.error('Failed to create anonymous session:', anonErr.message);
+        console.error('[Appwrite] Failed to create anonymous session:', anonErr.message);
+        console.error('[Appwrite] Error details:', anonErr);
+        
+        // Provide helpful error message
+        if (anonErr.message?.includes('Network') || anonErr.code === 0) {
+          const errorMsg = 'Cannot connect to Appwrite. Please check:\n' +
+            '1. Your internet connection\n' +
+            '2. Appwrite Console → Settings → Platforms\n' +
+            '3. Add your hostname (e.g., localhost, your-domain.com) as a Web platform';
+          console.error('[Appwrite]', errorMsg);
+          throw new Error(errorMsg);
+        }
+        
         sessionReady = null; // Allow retry
         throw anonErr;
       }

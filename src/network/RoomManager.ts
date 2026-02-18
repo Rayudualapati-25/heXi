@@ -73,84 +73,134 @@ export class RoomManager {
    * Create a new room (host)
    */
   async createRoom(hostName: string, maxPlayers: number = 8): Promise<{ room: Room; roomCode: string }> {
-    await ensureSession();
-    const roomCode = this.generateRoomCode();
-    this.localId = this.generateLocalId();
+    try {
+      await ensureSession();
+      const roomCode = this.generateRoomCode();
+      this.localId = this.generateLocalId();
 
-    const roomDoc = await databases.createDocument(DB, ROOMS_COL, ID.unique(), {
-      roomCode,
-      hostId: this.localId,
-      hostName,
-      status: 'waiting',
-      maxPlayers,
-      playerCount: 1,
-    });
+      console.log('[RoomManager] Creating room with code:', roomCode);
 
-    const room = roomDoc as unknown as Room;
-    this.currentRoomId = room.$id;
+      const roomDoc = await databases.createDocument(DB, ROOMS_COL, ID.unique(), {
+        roomCode,
+        hostId: this.localId,
+        hostName,
+        status: 'waiting',
+        maxPlayers,
+        playerCount: 1,
+      });
 
-    // Add host as first player
-    const playerDoc = await databases.createDocument(DB, PLAYERS_COL, ID.unique(), {
-      roomId: room.$id,
-      odplayerName: hostName,
-      odplayerId: this.localId,
-      score: 0,
-      status: 'waiting' as RoomPlayerStatus,
-      isHost: true,
-    });
+      const room = roomDoc as unknown as Room;
+      this.currentRoomId = room.$id;
 
-    this.currentPlayerId = playerDoc.$id;
+      console.log('[RoomManager] Room created:', room.$id);
 
-    return { room, roomCode };
+      // Add host as first player
+      const playerDoc = await databases.createDocument(DB, PLAYERS_COL, ID.unique(), {
+        roomId: room.$id,
+        odplayerName: hostName,
+        odplayerId: this.localId,
+        score: 0,
+        status: 'waiting' as RoomPlayerStatus,
+        isHost: true,
+      });
+
+      this.currentPlayerId = playerDoc.$id;
+      console.log('[RoomManager] Host player created:', this.currentPlayerId);
+
+      return { room, roomCode };
+    } catch (error: any) {
+      console.error('[RoomManager] Error creating room:', error.message || error);
+      // Clean up if we created a room but failed to add player
+      if (this.currentRoomId) {
+        try {
+          await databases.deleteDocument(DB, ROOMS_COL, this.currentRoomId);
+        } catch {}
+      }
+      this.currentRoomId = null;
+      this.currentPlayerId = null;
+      this.localId = null;
+      throw error;
+    }
   }
 
   /**
    * Join an existing room by code
    */
   async joinRoom(roomCode: string, playerName: string): Promise<{ room: Room; players: RoomPlayer[] }> {
-    await ensureSession();
-    // Find room by code
-    const response = await databases.listDocuments(DB, ROOMS_COL, [
-      Query.equal('roomCode', roomCode.toUpperCase()),
-      Query.equal('status', 'waiting'),
-      Query.limit(1),
-    ]);
+    try {
+      await ensureSession();
+      console.log('[RoomManager] Attempting to join room:', roomCode.toUpperCase());
+      
+      // Find room by code (case-insensitive)
+      const response = await databases.listDocuments(DB, ROOMS_COL, [
+        Query.equal('roomCode', roomCode.toUpperCase()),
+        Query.limit(10), // Get up to 10 matching codes
+      ]);
 
-    if (response.documents.length === 0) {
-      throw new Error('Room not found or game already started');
+      console.log('[RoomManager] Found rooms:', response.documents.length);
+
+      if (response.documents.length === 0) {
+        throw new Error('Room not found or game already started');
+      }
+
+      // Filter for waiting rooms
+      const waitingRooms = response.documents.filter(doc => doc.status === 'waiting');
+      
+      if (waitingRooms.length === 0) {
+        throw new Error('Room not found or game already started');
+      }
+
+      const room = waitingRooms[0] as unknown as Room;
+      console.log('[RoomManager] Found room:', room.$id, 'with', room.playerCount, 'players');
+
+      // Check player count
+      if (room.playerCount >= room.maxPlayers) {
+        throw new Error('Room is full');
+      }
+
+      this.localId = this.generateLocalId();
+      this.currentRoomId = room.$id;
+
+      console.log('[RoomManager] Adding player to room...');
+
+      // Add player to room
+      const playerDoc = await databases.createDocument(DB, PLAYERS_COL, ID.unique(), {
+        roomId: room.$id,
+        odplayerName: playerName,
+        odplayerId: this.localId,
+        score: 0,
+        status: 'waiting' as RoomPlayerStatus,
+        isHost: false,
+      });
+
+      this.currentPlayerId = playerDoc.$id;
+      console.log('[RoomManager] Player document created:', this.currentPlayerId);
+
+      // Update room player count
+      await databases.updateDocument(DB, ROOMS_COL, room.$id, {
+        playerCount: room.playerCount + 1,
+      });
+
+      console.log('[RoomManager] Room player count updated');
+
+      // Get all current players
+      const players = await this.fetchRoomPlayers(room.$id);
+      console.log('[RoomManager] Fetched', players.length, 'players');
+
+      return { room, players };
+    } catch (error: any) {
+      console.error('[RoomManager] Error joining room:', error.message || error);
+      // Clean up if we created a player doc but failed later
+      if (this.currentPlayerId) {
+        try {
+          await databases.deleteDocument(DB, PLAYERS_COL, this.currentPlayerId);
+        } catch {}
+      }
+      this.currentRoomId = null;
+      this.currentPlayerId = null;
+      this.localId = null;
+      throw error;
     }
-
-    const room = response.documents[0] as unknown as Room;
-
-    // Check player count
-    if (room.playerCount >= room.maxPlayers) {
-      throw new Error('Room is full');
-    }
-
-    this.localId = this.generateLocalId();
-    this.currentRoomId = room.$id;
-
-    // Add player to room
-    const playerDoc = await databases.createDocument(DB, PLAYERS_COL, ID.unique(), {
-      roomId: room.$id,
-      odplayerName: playerName,
-      odplayerId: this.localId,
-      score: 0,
-      status: 'waiting' as RoomPlayerStatus,
-      isHost: false,
-    });
-
-    this.currentPlayerId = playerDoc.$id;
-
-    // Update room player count
-    await databases.updateDocument(DB, ROOMS_COL, room.$id, {
-      playerCount: room.playerCount + 1,
-    });
-
-    // Get all current players
-    const players = await this.fetchRoomPlayers(room.$id);
-
-    return { room, players };
   }
 
   // ─── LOBBY ──────────────────────────────────────────────────────
@@ -162,24 +212,36 @@ export class RoomManager {
     onLobbyUpdate: LobbyUpdateCallback,
     onMatchStart: MatchStartCallback,
   ): void {
-    if (!this.currentRoomId) return;
+    if (!this.currentRoomId) {
+      console.error('[RoomManager] Cannot subscribe: no active room');
+      return;
+    }
 
     this.lobbyUpdateCb = onLobbyUpdate;
     this.matchStartCb = onMatchStart;
 
     const roomId = this.currentRoomId;
 
+    console.log('[RoomManager] Subscribing to lobby updates for room:', roomId);
+
     // Subscribe to room-players collection changes for this room
     this.unsubPlayers = client.subscribe(
       `databases.${DB}.collections.${PLAYERS_COL}.documents`,
       (response) => {
+        console.log('[RoomManager] Received player update:', response.events);
         const payload = response.payload as any;
         // Only react to players in our room
-        if (payload.roomId !== roomId) return;
+        if (payload.roomId !== roomId) {
+          console.log('[RoomManager] Ignoring update for different room');
+          return;
+        }
 
         // Re-fetch all players for consistency
         void this.fetchRoomPlayers(roomId).then((players) => {
+          console.log('[RoomManager] Fetched updated players:', players.length);
           if (this.lobbyUpdateCb) this.lobbyUpdateCb(players);
+        }).catch(err => {
+          console.error('[RoomManager] Error fetching players:', err);
         });
       },
     );
@@ -188,62 +250,96 @@ export class RoomManager {
     this.unsubRoom = client.subscribe(
       `databases.${DB}.collections.${ROOMS_COL}.documents.${roomId}`,
       (response) => {
+        console.log('[RoomManager] Received room update:', response.events);
         const payload = response.payload as any;
-        if (payload.status === 'playing' && this.matchStartCb) {
-          this.matchStartCb();
+        if (payload.status === 'playing') {
+          console.log('[RoomManager] Match starting!');
+          if (this.matchStartCb) {
+            this.matchStartCb();
+          }
         }
       },
     );
+
+    console.log('[RoomManager] Subscriptions active');
   }
 
   /**
    * Toggle ready status
    */
   async toggleReady(): Promise<boolean> {
-    if (!this.currentPlayerId) return false;
+    if (!this.currentPlayerId) {
+      console.error('[RoomManager] Cannot toggle ready: no player ID');
+      return false;
+    }
 
-    const doc = await databases.getDocument(DB, PLAYERS_COL, this.currentPlayerId);
-    const currentStatus = doc.status as RoomPlayerStatus;
-    const newStatus: RoomPlayerStatus = currentStatus === 'ready' ? 'waiting' : 'ready';
+    try {
+      console.log('[RoomManager] Toggling ready status...');
+      const doc = await databases.getDocument(DB, PLAYERS_COL, this.currentPlayerId);
+      const currentStatus = doc.status as RoomPlayerStatus;
+      const newStatus: RoomPlayerStatus = currentStatus === 'ready' ? 'waiting' : 'ready';
 
-    await databases.updateDocument(DB, PLAYERS_COL, this.currentPlayerId, {
-      status: newStatus,
-    });
+      await databases.updateDocument(DB, PLAYERS_COL, this.currentPlayerId, {
+        status: newStatus,
+      });
 
-    return newStatus === 'ready';
+      console.log('[RoomManager] Ready status updated to:', newStatus);
+      return newStatus === 'ready';
+    } catch (error: any) {
+      console.error('[RoomManager] Error toggling ready:', error.message || error);
+      throw error;
+    }
   }
 
   /**
    * Start the match (host only) — sets room status to 'playing' and all player statuses
    */
   async startMatch(): Promise<void> {
-    if (!this.currentRoomId || !this.localId) return;
-
-    // Verify we are host
-    const room = await databases.getDocument(DB, ROOMS_COL, this.currentRoomId);
-    if (room.hostId !== this.localId) {
-      throw new Error('Only the host can start the match');
+    if (!this.currentRoomId || !this.localId) {
+      console.error('[RoomManager] Cannot start match: missing room or player ID');
+      return;
     }
 
-    // Check all non-host players are ready
-    const players = await this.fetchRoomPlayers(this.currentRoomId);
-    const allReady = players.every((p) => p.isHost || p.status === 'ready');
-    if (!allReady) {
-      throw new Error('Not all players are ready');
-    }
+    try {
+      console.log('[RoomManager] Starting match...');
+      
+      // Verify we are host
+      const room = await databases.getDocument(DB, ROOMS_COL, this.currentRoomId);
+      if (room.hostId !== this.localId) {
+        throw new Error('Only the host can start the match');
+      }
 
-    // Set all players to 'playing'
-    for (const player of players) {
-      await databases.updateDocument(DB, PLAYERS_COL, player.$id, {
-        status: 'playing' as RoomPlayerStatus,
-        score: 0,
+      // Check all non-host players are ready
+      const players = await this.fetchRoomPlayers(this.currentRoomId);
+      console.log('[RoomManager] Found players:', players.map(p => ({ name: p.odplayerName, status: p.status, isHost: p.isHost })));
+      
+      const allReady = players.every((p) => p.isHost || p.status === 'ready');
+      if (!allReady) {
+        throw new Error('Not all players are ready');
+      }
+
+      console.log('[RoomManager] All players ready, setting status to playing...');
+
+      // Set all players to 'playing'
+      for (const player of players) {
+        await databases.updateDocument(DB, PLAYERS_COL, player.$id, {
+          status: 'playing' as RoomPlayerStatus,
+          score: 0,
+        });
+      }
+
+      console.log('[RoomManager] All player statuses updated');
+
+      // Set room status to 'playing' — triggers realtime event for all subscribers
+      await databases.updateDocument(DB, ROOMS_COL, this.currentRoomId, {
+        status: 'playing',
       });
-    }
 
-    // Set room status to 'playing' — triggers realtime event for all subscribers
-    await databases.updateDocument(DB, ROOMS_COL, this.currentRoomId, {
-      status: 'playing',
-    });
+      console.log('[RoomManager] Room status updated to playing');
+    } catch (error: any) {
+      console.error('[RoomManager] Error starting match:', error.message || error);
+      throw error;
+    }
   }
 
   // ─── GAMEPLAY SCORE SYNC ───────────────────────────────────────

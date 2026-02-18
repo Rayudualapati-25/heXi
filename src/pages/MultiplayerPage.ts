@@ -179,6 +179,8 @@ export class MultiplayerPage extends BasePage {
         try {
           const { room, roomCode } = await this.roomManager.createRoom(name);
 
+          console.log('[MultiplayerPage] Room created successfully:', roomCode);
+
           stateManager.updateMultiplayer({
             roomId: room.$id,
             roomCode,
@@ -191,13 +193,19 @@ export class MultiplayerPage extends BasePage {
 
           this.openLobby(roomCode, true);
         } catch (err: any) {
+          console.error('[MultiplayerPage] Error creating room:', err);
           const msg = err.message || String(err);
-          if (msg.includes('Network request failed') || msg.includes('Failed to fetch')) {
-            errorEl.textContent = 'Cannot reach Appwrite. Add "localhost" as a Web platform in your Appwrite Console → Settings → Platforms.';
+          
+          if (msg.includes('Network') || msg.includes('connect') || msg.includes('Failed to fetch')) {
+            errorEl.textContent = '❌ Cannot reach Appwrite server. Please check your internet connection and Appwrite setup.';
+          } else if (msg.includes('Platform')) {
+            errorEl.textContent = '❌ ' + msg;
           } else if (msg.includes('collection') || msg.includes('not found') || msg.includes('404')) {
-            errorEl.textContent = 'Database collections not found. Run: npx tsx scripts/setup-collections.ts';
+            errorEl.textContent = '❌ Database not set up. Run: npm run setup:collections';
+          } else if (msg.includes('Unauthorized') || msg.includes('401')) {
+            errorEl.textContent = '❌ Authentication failed. Please refresh the page.';
           } else {
-            errorEl.textContent = msg;
+            errorEl.textContent = '❌ ' + msg;
           }
           errorEl.classList.remove('hidden');
           createBtn.element.textContent = 'Create Room';
@@ -266,6 +274,8 @@ export class MultiplayerPage extends BasePage {
         try {
           const { room } = await this.roomManager.joinRoom(code, name);
 
+          console.log('[MultiplayerPage] Joined room successfully:', code);
+
           stateManager.updateMultiplayer({
             roomId: room.$id,
             roomCode: code,
@@ -278,11 +288,21 @@ export class MultiplayerPage extends BasePage {
 
           this.openLobby(code, false);
         } catch (err: any) {
+          console.error('[MultiplayerPage] Error joining room:', err);
           const msg = err.message || String(err);
-          if (msg.includes('Network request failed') || msg.includes('Failed to fetch')) {
-            errorEl.textContent = 'Cannot reach Appwrite. Add your hostname as a Web platform in Appwrite Console → Settings → Platforms.';
+          
+          if (msg.includes('Network') || msg.includes('connect') || msg.includes('Failed to fetch')) {
+            errorEl.textContent = '❌ Cannot reach Appwrite server. Please check your internet connection.';
+          } else if (msg.includes('Platform')) {
+            errorEl.textContent = '❌ ' + msg;
+          } else if (msg.includes('Room not found')) {
+            errorEl.textContent = '❌ Room code not found or game already started. Please check the code and try again.';
+          } else if (msg.includes('Room is full')) {
+            errorEl.textContent = '❌ This room is full. Please try another room.';
+          } else if (msg.includes('collection') || msg.includes('not found') || msg.includes('404')) {
+            errorEl.textContent = '❌ Database not set up. Run: npm run setup:collections';
           } else {
-            errorEl.textContent = msg;
+            errorEl.textContent = '❌ ' + msg;
           }
           errorEl.classList.remove('hidden');
           joinBtn.element.textContent = 'Join Room';
