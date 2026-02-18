@@ -21,6 +21,9 @@ import { themeManager } from '@/managers/ThemeManager';
  * Initialize the application
  */
 async function init(): Promise<void> {
+  // Appwrite client initialized in @lib/appwrite
+  console.log('Appwrite client ready');
+
   // Get app container
   const appContainer = document.getElementById('app');
   

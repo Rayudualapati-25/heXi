@@ -1,80 +1,55 @@
-﻿/**
- * MultiplayerPage - Group management (create/join/list)
+/**
+ * MultiplayerPage - Room-based multiplayer
+ * 
+ * Flow:
+ * 1. Create Room — enter your name → get room code to share
+ * 2. Join Room — enter room code + your name → join lobby
+ * 3. Lobby — see all players, ready up, host starts match
+ * 4. Game — real-time score sync, quit detection, live leaderboard
  */
 
 import { BasePage } from './BasePage';
 import { Button } from '@ui/components/Button';
 import { Input } from '@ui/components/Input';
 import { Modal } from '@ui/components/Modal';
-import { GroupLeaderboardModal } from '@ui/modals/GroupLeaderboardModal';
 import { LobbyModal } from '@ui/modals/LobbyModal';
 import { Router } from '@/router';
 import { stateManager } from '@core/StateManager';
 import { ROUTES } from '@core/constants';
-import { GroupManager } from '@network/GroupManager';
-import type { Group, LobbyPlayer } from '../types/game';
+import { RoomManager } from '@network/RoomManager';
+import type { RoomPlayer, LobbyPlayer } from '../types/game';
 
-type View = 'list' | 'create' | 'join';
+type View = 'home' | 'create' | 'join';
 
 export class MultiplayerPage extends BasePage {
-  private groupManager = new GroupManager();
-  private currentView: View = 'list';
-  private groups: Group[] = [];
+  private roomManager = new RoomManager();
+  private currentView: View = 'home';
   private contentContainer!: HTMLDivElement;
   private buttons: Button[] = [];
   private lobbyModal: LobbyModal | null = null;
-  private currentLobbyGroup: Group | null = null;
 
   public render(): void {
     const container = this.initPageLayout({
       align: 'top',
-      maxWidthClass: 'max-w-4xl',
-      paddingClass: 'px-2 sm:px-4 py-8 sm:py-12',
+      maxWidthClass: 'max-w-lg',
+      paddingClass: 'px-4 sm:px-6 py-8 sm:py-12',
     });
 
-    const header = this.createHeader('MULTIPLAYER GROUPS', 'Create or join groups to compare scores');
+    const header = this.createHeader('MULTIPLAYER', 'Create or join a room to play with friends');
     container.appendChild(header);
 
-    const tabRow = document.createElement('div');
-    tabRow.className = 'grid grid-cols-3 gap-2';
-
-    tabRow.appendChild(this.createTabButton('My Groups', 'list'));
-    tabRow.appendChild(this.createTabButton('Create', 'create'));
-    tabRow.appendChild(this.createTabButton('Join', 'join'));
-
-    container.appendChild(tabRow);
-
     this.contentContainer = document.createElement('div');
-    this.contentContainer.className = 'space-y-4';
+    this.contentContainer.className = 'space-y-4 mt-6';
     container.appendChild(this.contentContainer);
 
-    const backButton = this.createBackButton('<- Back', () => {
+    const backButton = this.createBackButton('\u2190 Back', () => {
       Router.getInstance().navigate(ROUTES.MENU);
     });
-    backButton.style.marginTop = '1rem';
+    backButton.style.marginTop = '2rem';
     container.appendChild(backButton);
 
     this.renderView();
     this.mount();
-  }
-
-  private createTabButton(label: string, view: View): HTMLButtonElement {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = label;
-    button.className = this.getTabClass(this.currentView === view);
-
-    button.addEventListener('click', () => {
-      this.currentView = view;
-      this.renderView();
-    });
-
-    return button;
-  }
-
-  private getTabClass(isActive: boolean): string {
-    const baseClass = 'theme-tab text-sm font-semibold';
-    return isActive ? `${baseClass} theme-tab-active` : baseClass;
   }
 
   private renderView(): void {
@@ -82,408 +57,349 @@ export class MultiplayerPage extends BasePage {
     this.buttons.forEach((btn) => btn.destroy());
     this.buttons = [];
 
-    if (this.currentView === 'list') {
-      this.renderGroupList();
-    } else if (this.currentView === 'create') {
-      this.renderCreateGroup();
-    } else {
-      this.renderJoinGroup();
+    switch (this.currentView) {
+      case 'home':
+        this.renderHome();
+        break;
+      case 'create':
+        this.renderCreateRoom();
+        break;
+      case 'join':
+        this.renderJoinRoom();
+        break;
     }
   }
 
-  private renderGroupList(): void {
-    const state = stateManager.getState();
-    if (!state.player.id) {
-      this.showInlineMessage('Please log in to manage groups.');
-      return;
-    }
+  // --- HOME VIEW ---
 
-    const loading = document.createElement('div');
-    loading.className = 'text-sm theme-inline-message';
-    loading.textContent = 'Loading groups...';
-    this.contentContainer.appendChild(loading);
-
-    void this.loadGroups();
-  }
-
-  private async loadGroups(): Promise<void> {
-    const state = stateManager.getState();
-    if (!state.player.id) return;
-
-    this.groups = await this.groupManager.getUserGroups(state.player.id);
-    this.contentContainer.innerHTML = '';
-
-    if (this.groups.length === 0) {
-      this.showInlineMessage('No groups yet. Create or join one to get started.');
-      return;
-    }
-
-    this.groups.forEach((group) => {
-      const card = document.createElement('div');
-      card.className = 'theme-card rounded-2xl p-4 space-y-3';
-
-      const header = document.createElement('div');
-      header.className = 'flex items-center justify-between';
-
-      const title = document.createElement('div');
-      title.className = 'text-lg font-bold theme-text';
-      title.textContent = group.groupName;
-      header.appendChild(title);
-
-      const code = document.createElement('div');
-      code.className = 'text-xs font-semibold theme-text-secondary tracking-[0.6em] uppercase';
-      code.textContent = group.roomCode;
-      header.appendChild(code);
-
-      card.appendChild(header);
-
-      const meta = document.createElement('div');
-      meta.className = 'text-xs theme-text-secondary';
-      meta.textContent = `Members: ${group.memberCount}`;
-      card.appendChild(meta);
-
-      const actions = document.createElement('div');
-      actions.className = 'flex flex-wrap gap-2';
-
-      const leaderboardBtn = new Button('View Leaderboard', {
-        variant: 'outline',
-        size: 'small',
-        onClick: () => this.showGroupLeaderboard(group),
-      });
-      this.buttons.push(leaderboardBtn);
-      actions.appendChild(leaderboardBtn.element);
-
-      const playBtn = new Button('Play In Group', {
-        variant: 'primary',
-        size: 'small',
-        onClick: () => this.playGroup(group),
-      });
-      this.buttons.push(playBtn);
-      actions.appendChild(playBtn.element);
-
-      const leaveBtn = new Button('Leave', {
-        variant: 'ghost',
-        size: 'small',
-        onClick: () => this.confirmLeaveGroup(group),
-      });
-      this.buttons.push(leaveBtn);
-      actions.appendChild(leaveBtn.element);
-
-      card.appendChild(actions);
-      this.contentContainer.appendChild(card);
+  private renderHome(): void {
+    const createBtn = new Button('\uD83C\uDFAE  Create Room', {
+      variant: 'primary',
+      size: 'large',
+      fullWidth: true,
+      onClick: () => {
+        this.currentView = 'create';
+        this.renderView();
+      },
     });
+    this.buttons.push(createBtn);
+
+    const createDesc = document.createElement('p');
+    createDesc.className = 'text-xs theme-text-secondary text-center -mt-2 mb-4';
+    createDesc.textContent = 'Create a room and share the code with friends';
+
+    const joinBtn = new Button('\uD83D\uDD17  Join Room', {
+      variant: 'outline',
+      size: 'large',
+      fullWidth: true,
+      onClick: () => {
+        this.currentView = 'join';
+        this.renderView();
+      },
+    });
+    this.buttons.push(joinBtn);
+
+    const joinDesc = document.createElement('p');
+    joinDesc.className = 'text-xs theme-text-secondary text-center -mt-2';
+    joinDesc.textContent = "Enter a room code to join a friend's game";
+
+    this.contentContainer.appendChild(createBtn.element);
+    this.contentContainer.appendChild(createDesc);
+    this.contentContainer.appendChild(joinBtn.element);
+    this.contentContainer.appendChild(joinDesc);
+
+    const howItWorks = document.createElement('div');
+    howItWorks.className = 'mt-8 theme-card rounded-2xl p-5 space-y-3';
+    howItWorks.innerHTML = `
+      <h3 class="text-sm font-bold theme-text uppercase tracking-wider">How It Works</h3>
+      <div class="space-y-2 text-xs theme-text-secondary">
+        <div class="flex items-start gap-2">
+          <span class="text-cyan-400 font-bold">1.</span>
+          <span>Create a room and share the <strong class="theme-text">6-character code</strong> with friends</span>
+        </div>
+        <div class="flex items-start gap-2">
+          <span class="text-cyan-400 font-bold">2.</span>
+          <span>Each player enters the code and their <strong class="theme-text">display name</strong></span>
+        </div>
+        <div class="flex items-start gap-2">
+          <span class="text-cyan-400 font-bold">3.</span>
+          <span>Everyone readies up, then the host starts the match</span>
+        </div>
+        <div class="flex items-start gap-2">
+          <span class="text-cyan-400 font-bold">4.</span>
+          <span>Play simultaneously with a <strong class="theme-text">live leaderboard</strong> \u2014 if someone quits, they show as "LEFT"</span>
+        </div>
+      </div>
+    `;
+    this.contentContainer.appendChild(howItWorks);
   }
 
-  private renderCreateGroup(): void {
-    const state = stateManager.getState();
-    if (!state.player.id) {
-      this.showInlineMessage('Please log in to create groups.');
-      return;
-    }
+  // --- CREATE ROOM VIEW ---
+
+  private renderCreateRoom(): void {
+    const backBtn = document.createElement('button');
+    backBtn.className = 'text-xs theme-text-secondary hover:theme-text mb-2 cursor-pointer';
+    backBtn.textContent = '\u2190 Back to menu';
+    backBtn.addEventListener('click', () => {
+      this.currentView = 'home';
+      this.renderView();
+    });
+    this.contentContainer.appendChild(backBtn);
+
+    const title = document.createElement('h2');
+    title.className = 'text-xl font-bold theme-text mb-4';
+    title.textContent = 'Create a Room';
+    this.contentContainer.appendChild(title);
 
     const nameInput = new Input({
-      label: 'Group Name',
-      placeholder: 'Enter group name',
+      label: 'Your Display Name',
+      placeholder: 'Enter your name',
       required: true,
-      maxLength: 50,
+      maxLength: 20,
     });
-
     this.contentContainer.appendChild(nameInput.container);
 
-    const createBtn = new Button('Create Group', {
+    const errorEl = document.createElement('div');
+    errorEl.className = 'text-red-400 text-sm hidden';
+    this.contentContainer.appendChild(errorEl);
+
+    const createBtn = new Button('Create Room', {
       variant: 'primary',
-      size: 'medium',
+      size: 'large',
       fullWidth: true,
       onClick: async () => {
         if (!nameInput.validate()) return;
-        const name = nameInput.getValue();
+        const name = nameInput.getValue().trim();
+        if (!name) return;
+
+        errorEl.classList.add('hidden');
+        createBtn.element.textContent = 'Creating...';
+        createBtn.element.setAttribute('disabled', 'true');
 
         try {
-          const group = await this.groupManager.createGroup(state.player.id, name, state.player.name);
-          this.showMessage('Group Created', `Room code: ${group.roomCode}`);
-          this.currentView = 'list';
-          this.renderView();
-        } catch (error: any) {
-          this.showMessage('Error', error.message || 'Failed to create group');
+          const { room, roomCode } = await this.roomManager.createRoom(name);
+
+          stateManager.updateMultiplayer({
+            roomId: room.$id,
+            roomCode,
+            localPlayerId: this.roomManager.getLocalId(),
+            localPlayerName: name,
+            isInLobby: true,
+            isHost: true,
+          });
+          stateManager.updatePlayer({ name, id: this.roomManager.getLocalId()! });
+
+          this.openLobby(roomCode, true);
+        } catch (err: any) {
+          const msg = err.message || String(err);
+          if (msg.includes('Network request failed') || msg.includes('Failed to fetch')) {
+            errorEl.textContent = 'Cannot reach Appwrite. Add "localhost" as a Web platform in your Appwrite Console → Settings → Platforms.';
+          } else if (msg.includes('collection') || msg.includes('not found') || msg.includes('404')) {
+            errorEl.textContent = 'Database collections not found. Run: npx tsx scripts/setup-collections.ts';
+          } else {
+            errorEl.textContent = msg;
+          }
+          errorEl.classList.remove('hidden');
+          createBtn.element.textContent = 'Create Room';
+          createBtn.element.removeAttribute('disabled');
         }
       },
     });
-
     this.buttons.push(createBtn);
     this.contentContainer.appendChild(createBtn.element);
   }
 
-  private renderJoinGroup(): void {
-    const state = stateManager.getState();
-    if (!state.player.id) {
-      this.showInlineMessage('Please log in to join groups.');
-      return;
-    }
+  // --- JOIN ROOM VIEW ---
+
+  private renderJoinRoom(): void {
+    const backBtn = document.createElement('button');
+    backBtn.className = 'text-xs theme-text-secondary hover:theme-text mb-2 cursor-pointer';
+    backBtn.textContent = '\u2190 Back to menu';
+    backBtn.addEventListener('click', () => {
+      this.currentView = 'home';
+      this.renderView();
+    });
+    this.contentContainer.appendChild(backBtn);
+
+    const title = document.createElement('h2');
+    title.className = 'text-xl font-bold theme-text mb-4';
+    title.textContent = 'Join a Room';
+    this.contentContainer.appendChild(title);
 
     const codeInput = new Input({
       label: 'Room Code',
-      placeholder: 'Enter room code',
+      placeholder: 'e.g. ABC123',
       required: true,
       maxLength: 6,
       onChange: (value) => {
-        codeInput.setValue(value.toUpperCase());
+        codeInput.setValue(value.toUpperCase().replace(/[^A-Z0-9]/g, ''));
       },
     });
-
     this.contentContainer.appendChild(codeInput.container);
 
-    const joinBtn = new Button('Join Group', {
+    const nameInput = new Input({
+      label: 'Your Display Name',
+      placeholder: 'Enter your name',
+      required: true,
+      maxLength: 20,
+    });
+    this.contentContainer.appendChild(nameInput.container);
+
+    const errorEl = document.createElement('div');
+    errorEl.className = 'text-red-400 text-sm hidden';
+    this.contentContainer.appendChild(errorEl);
+
+    const joinBtn = new Button('Join Room', {
       variant: 'primary',
-      size: 'medium',
+      size: 'large',
       fullWidth: true,
       onClick: async () => {
-        if (!codeInput.validate()) return;
-        const code = codeInput.getValue().toUpperCase();
+        if (!codeInput.validate() || !nameInput.validate()) return;
+        const code = codeInput.getValue().toUpperCase().trim();
+        const name = nameInput.getValue().trim();
+        if (!code || !name) return;
+
+        errorEl.classList.add('hidden');
+        joinBtn.element.textContent = 'Joining...';
+        joinBtn.element.setAttribute('disabled', 'true');
 
         try {
-          const group = await this.groupManager.joinGroup(state.player.id, state.player.name, code);
-          this.showMessage('Joined Group', `You joined ${group.groupName}`);
-          this.currentView = 'list';
-          this.renderView();
-        } catch (error: any) {
-          this.showMessage('Error', error.message || 'Failed to join group');
+          const { room } = await this.roomManager.joinRoom(code, name);
+
+          stateManager.updateMultiplayer({
+            roomId: room.$id,
+            roomCode: code,
+            localPlayerId: this.roomManager.getLocalId(),
+            localPlayerName: name,
+            isInLobby: true,
+            isHost: false,
+          });
+          stateManager.updatePlayer({ name, id: this.roomManager.getLocalId()! });
+
+          this.openLobby(code, false);
+        } catch (err: any) {
+          const msg = err.message || String(err);
+          if (msg.includes('Network request failed') || msg.includes('Failed to fetch')) {
+            errorEl.textContent = 'Cannot reach Appwrite. Add your hostname as a Web platform in Appwrite Console → Settings → Platforms.';
+          } else {
+            errorEl.textContent = msg;
+          }
+          errorEl.classList.remove('hidden');
+          joinBtn.element.textContent = 'Join Room';
+          joinBtn.element.removeAttribute('disabled');
         }
       },
     });
-
     this.buttons.push(joinBtn);
     this.contentContainer.appendChild(joinBtn.element);
   }
 
-  private async showGroupLeaderboard(group: Group): Promise<void> {
-    const scores = await this.groupManager.getGroupLeaderboard(group.$id);
+  // --- LOBBY ---
 
-    const modal = new GroupLeaderboardModal({
-      group,
-      scores,
-      currentUserId: stateManager.getState().player.id,
-      onLeave: () => this.confirmLeaveGroup(group),
-    });
-
-    modal.open();
-  }
-
-
-  private playGroup(group: Group): void {
-    const state = stateManager.getState();
-    if (!state.player.id) return;
-    
-    this.currentLobbyGroup = group;
-    
-    // Determine if creating or joining lobby
-    const isHost = group.createdBy === state.player.id;
-    
-    if (isHost) {
-      this.createLobby(group);
-    } else {
-      this.joinLobby(group);
-    }
-  }
-  
-  private async createLobby(group: Group): Promise<void> {
-    const state = stateManager.getState();
-    if (!state.player.id) return;
-    
-    try {
-      // Setup lobby
-      await this.groupManager.createLobby(
-        state.player.id,
-        state.player.name,
-        group.$id,
-        group.roomCode,
-        (players: LobbyPlayer[]) => this.handleLobbyUpdate(players),
-        () => this.handleMatchStart()
-      );
-      
-      // Update state
-      stateManager.updateMultiplayer({
-        roomId: group.$id,
-        roomCode: group.roomCode,
-        players: this.groupManager.getLobbyPlayers(),
-        isInLobby: true,
-        localPlayerReady: false,
-      });
-      
-      // Open lobby modal
-      this.openLobbyModal(group, true);
-      
-    } catch (error: any) {
-      this.showMessage('Error', error.message || 'Failed to create lobby');
-    }
-  }
-  
-  private async joinLobby(group: Group): Promise<void> {
-    const state = stateManager.getState();
-    if (!state.player.id) return;
-    
-    try {
-      // Join lobby
-      await this.groupManager.joinLobby(
-        state.player.id,
-        state.player.name,
-        group.$id,
-        (players: LobbyPlayer[]) => this.handleLobbyUpdate(players),
-        () => this.handleMatchStart()
-      );
-      
-      // Update state
-      stateManager.updateMultiplayer({
-        roomId: group.$id,
-        roomCode: group.roomCode,
-        players: this.groupManager.getLobbyPlayers(),
-        isInLobby: true,
-        localPlayerReady: false,
-      });
-      
-      // Open lobby modal
-      this.openLobbyModal(group, false);
-      
-    } catch (error: any) {
-      this.showMessage('Error', error.message || 'Failed to join lobby');
-    }
-  }
-  
-  private openLobbyModal(group: Group, isHost: boolean): void {
-    const state = stateManager.getState();
-    
-    this.lobbyModal = new LobbyModal({
-      roomCode: group.roomCode,
-      players: state.multiplayer.players,
+  private openLobby(roomCode: string, isHost: boolean): void {
+    const initialPlayers: LobbyPlayer[] = [{
+      userId: this.roomManager.getLocalId()!,
+      userName: stateManager.getState().multiplayer.localPlayerName || 'Player',
+      isReady: isHost,
       isHost,
-      localPlayerReady: state.multiplayer.localPlayerReady,
-      onToggleReady: () => this.toggleReady(),
-      onStartMatch: () => this.startMatch(),
-      onLeaveLobby: () => this.leaveLobby(),
+    }];
+
+    this.lobbyModal = new LobbyModal({
+      roomCode,
+      players: initialPlayers,
+      isHost,
+      localPlayerReady: isHost,
+      onToggleReady: () => this.handleToggleReady(),
+      onStartMatch: () => this.handleStartMatch(),
+      onLeaveLobby: () => this.handleLeaveLobby(),
     });
-    
+
     this.lobbyModal.open();
+
+    this.roomManager.subscribeLobby(
+      (roomPlayers: RoomPlayer[]) => this.handleLobbyUpdate(roomPlayers),
+      () => this.handleMatchStarted(),
+    );
   }
-  
-  private toggleReady(): void {
-    this.groupManager.toggleReady();
-    
-    const currentReady = stateManager.getState().multiplayer.localPlayerReady;
-    stateManager.updateMultiplayer({ localPlayerReady: !currentReady });
-    
-    // Update lobby modal
-    if (this.lobbyModal) {
-      const players = this.groupManager.getLobbyPlayers();
-      this.lobbyModal.update(players, !currentReady);
+
+  private async handleToggleReady(): Promise<void> {
+    try {
+      const isReady = await this.roomManager.toggleReady();
+      stateManager.updateMultiplayer({ localPlayerReady: isReady });
+
+      const roomId = this.roomManager.getRoomId();
+      if (roomId) {
+        const players = await this.roomManager.fetchRoomPlayers(roomId);
+        const lobbyPlayers = this.roomManager.toLobbyPlayers(players);
+        if (this.lobbyModal) {
+          this.lobbyModal.update(lobbyPlayers, isReady);
+        }
+      }
+    } catch (err: any) {
+      console.error('Failed to toggle ready:', err);
     }
   }
-  
-  private startMatch(): void {
-    this.groupManager.startMatch();
-    // handleMatchStart will be called via callback
-  }
-  
-  private handleLobbyUpdate(players: LobbyPlayer[]): void {
-    // Update state
-    stateManager.updateMultiplayer({ players });
-    
-    // Update lobby modal
-    if (this.lobbyModal) {
-      const localReady = stateManager.getState().multiplayer.localPlayerReady;
-      this.lobbyModal.update(players, localReady);
+
+  private async handleStartMatch(): Promise<void> {
+    try {
+      await this.roomManager.startMatch();
+    } catch (err: any) {
+      this.showMessage('Cannot Start', err.message || 'Failed to start match');
     }
   }
-  
-  private handleMatchStart(): void {
-    console.log('[MultiplayerPage] Match starting!');
-    
-    // Close lobby modal
+
+  private handleLobbyUpdate(roomPlayers: RoomPlayer[]): void {
+    const lobbyPlayers = this.roomManager.toLobbyPlayers(roomPlayers);
+    const localReady = stateManager.getState().multiplayer.localPlayerReady;
+
+    stateManager.updateMultiplayer({ players: lobbyPlayers });
+
+    if (this.lobbyModal) {
+      this.lobbyModal.update(lobbyPlayers, localReady);
+    }
+  }
+
+  private handleMatchStarted(): void {
     if (this.lobbyModal) {
       this.lobbyModal.close();
       this.lobbyModal = null;
     }
-    
-    // Set game mode and navigate to difficulty selection
-    const groupId = stateManager.getState().multiplayer.roomId;
-    stateManager.updateUI({ 
-      currentGroupId: groupId ?? undefined, 
-      currentGameMode: 'multiplayerRace', 
-      multiplayerMode: 'race' 
+
+    stateManager.updateUI({
+      currentGroupId: this.roomManager.getRoomId() ?? undefined,
+      currentGameMode: 'multiplayerRace',
+      multiplayerMode: 'race',
     });
-    
+
+    // Store roomManager reference for GamePage via window 
+    (window as any).__hexi_roomManager = this.roomManager;
+
     Router.getInstance().navigate(ROUTES.DIFFICULTY);
   }
-  
-  private leaveLobby(): void {
-    this.groupManager.leaveLobby();
-    
-    // Reset state
+
+  private async handleLeaveLobby(): Promise<void> {
+    await this.roomManager.leaveRoom();
+
     stateManager.updateMultiplayer({
       roomId: null,
       roomCode: null,
       players: [],
       isInLobby: false,
       localPlayerReady: false,
+      localPlayerId: null,
+      localPlayerName: null,
     });
-    
-    // Close modal
+
     if (this.lobbyModal) {
       this.lobbyModal.close();
       this.lobbyModal = null;
     }
-    
-    this.currentLobbyGroup = null;
+
+    this.currentView = 'home';
+    this.renderView();
   }
 
-  private confirmLeaveGroup(group: Group): void {
-    const modal = new Modal({
-      title: 'Leave Group',
-      closeOnBackdrop: true,
-      closeOnEscape: true,
-    });
-
-    const content = document.createElement('div');
-    content.className = 'space-y-4';
-
-    const text = document.createElement('p');
-    text.className = 'text-sm theme-text-secondary';
-    text.textContent = `Leave ${group.groupName}?`;
-    content.appendChild(text);
-
-    const leaveBtn = new Button('Leave', {
-      variant: 'ghost',
-      size: 'small',
-      fullWidth: true,
-      onClick: async () => {
-        const state = stateManager.getState();
-        if (!state.player.id) return;
-
-        await this.groupManager.leaveGroup(state.player.id, group.$id);
-        modal.close();
-        this.renderView();
-      },
-    });
-    this.buttons.push(leaveBtn);
-    content.appendChild(leaveBtn.element);
-
-    const cancelBtn = new Button('Cancel', {
-      variant: 'outline',
-      size: 'small',
-      fullWidth: true,
-      onClick: () => modal.close(),
-    });
-    this.buttons.push(cancelBtn);
-    content.appendChild(cancelBtn.element);
-
-    modal.setContent(content);
-    modal.open();
-  }
-
-  private showInlineMessage(message: string): void {
-    const text = document.createElement('div');
-    text.className = 'text-sm theme-inline-message';
-    text.textContent = message;
-    this.contentContainer.appendChild(text);
-  }
+  // --- UTILITIES ---
 
   private showMessage(title: string, message: string): void {
     const modal = new Modal({
@@ -513,16 +429,26 @@ export class MultiplayerPage extends BasePage {
     modal.open();
   }
 
+  public getRoomManager(): RoomManager {
+    return this.roomManager;
+  }
+
   public onUnmount(): void {
-    // Cleanup lobby if active
-    if (this.lobbyModal) {
-      this.groupManager.leaveLobby();
-      this.lobbyModal.close();
-      this.lobbyModal = null;
+    const state = stateManager.getState();
+    if (state.ui.currentGameMode?.startsWith('multiplayer')) {
+      if (this.lobbyModal) {
+        this.lobbyModal.close();
+        this.lobbyModal = null;
+      }
+    } else {
+      if (this.lobbyModal) {
+        void this.roomManager.leaveRoom();
+        this.lobbyModal.close();
+        this.lobbyModal = null;
+      }
     }
-    
+
     this.buttons.forEach((btn) => btn.destroy());
     this.buttons = [];
   }
 }
-

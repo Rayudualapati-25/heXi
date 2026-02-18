@@ -25,6 +25,7 @@ import { DifficultyLevel, getDifficultyConfig } from '@config/difficulty';
 import type { DifficultyConfig, AdaptiveAssistConfig } from '@config/difficulty';
 import { appwriteClient } from '@network/AppwriteClient';
 import { GroupManager } from '@network/GroupManager';
+import { RoomManager } from '@network/RoomManager';
 import { DailyChallengeSystem } from '@modes/DailyChallengeMode';
 import { TimerAttackMode } from '@modes/TimerAttackMode';
 import { DailyChallengeModal } from '@ui/modals/DailyChallengeModal';
@@ -92,6 +93,7 @@ export class GamePage extends BasePage {
   private dailyChallengeModal: DailyChallengeModal | null = null;
   private timerAttack: TimerAttackMode | null = null;
   private groupManager = new GroupManager();
+  private roomManager: RoomManager | null = null;
   private unsubscribeGameOver: (() => void) | null = null;
   private unsubscribeScoreUpdated: (() => void) | null = null;
   private effectLayer: HTMLDivElement | null = null;
@@ -1174,6 +1176,12 @@ export class GamePage extends BasePage {
       this.pauseModal.close();
       this.pauseModal = null;
     }
+    
+    // Mark as "left" if multiplayer game is in progress
+    if (this.multiplayerSyncActive && this.roomManager) {
+      void this.roomManager.leaveRoom();
+    }
+    
     this.gameLoop.stop();
     Router.getInstance().navigate(ROUTES.MENU);
   }
@@ -1637,7 +1645,7 @@ export class GamePage extends BasePage {
     audioManager.setMusicTempoLevel(tempo);
   }
 
-  private updateTimerRamp(dt: number): void {
+  private updateTimerRamp(_dt: number): void {
     const state = stateManager.getState();
     if (state.ui.currentGameMode !== 'timerAttack' || !this.timerAttack) return;
     
@@ -2019,6 +2027,10 @@ export class GamePage extends BasePage {
 
     const groupId = state.ui.currentGroupId;
     if (groupId && state.player.id) {
+      // Mark player as finished in room
+      if (this.roomManager) {
+        void this.roomManager.finishGame(state.game.score);
+      }
       void this.groupManager.recordGroupScore(
         state.player.id,
         state.player.name,
@@ -2197,10 +2209,12 @@ export class GamePage extends BasePage {
     // Set game status to playing
     stateManager.setState('status', GameStatus.PLAYING);
     
+    // Initialize canvas first (so leaderboardHUD is created)
+    this.initCanvas();
+    
     // Start multiplayer score sync if in multiplayer mode
     this.startMultiplayerSync();
     
-    this.initCanvas();
     this.startGameLoop();
 
     if (uiState.currentGameMode === 'dailyChallenge') {
@@ -2305,7 +2319,11 @@ export class GamePage extends BasePage {
       
       // Emit score to multiplayer session
       if (this.multiplayerSyncActive) {
-        this.groupManager.emitScore(score);
+        if (this.roomManager) {
+          void this.roomManager.emitScore(score);
+        } else {
+          this.groupManager.emitScore(score);
+        }
         
         // Update local player in leaderboard
         const state = stateManager.getState();
@@ -2341,7 +2359,7 @@ export class GamePage extends BasePage {
   }
   
   /**
-   * Start multiplayer score sync for competitive play
+   * Start multiplayer score sync for competitive play (using RoomManager + Appwrite Realtime)
    */
   private startMultiplayerSync(): void {
     const state = stateManager.getState();
@@ -2367,18 +2385,81 @@ export class GamePage extends BasePage {
       true
     );
     
-    // Start score sync session
-    this.groupManager.startScoreSync(
-      state.player.id,
-      state.player.name,
-      state.ui.currentGroupId,
-      (opponentScore: number, opponentName: string) => {
-        this.handleOpponentScoreUpdate(opponentScore, opponentName);
-      },
-      () => {
-        this.handleOpponentDisconnect();
-      }
-    );
+    // Try to get RoomManager from MultiplayerPage (passed via window)
+    this.roomManager = (window as any).__hexi_roomManager as RoomManager | null;
+    
+    if (this.roomManager) {
+      // Subscribe to real-time score updates via Appwrite Realtime
+      this.roomManager.subscribeScoreUpdates(
+        (players) => {
+          // Update leaderboard with all players' scores
+          const localId = this.roomManager!.getLocalId();
+          for (const player of players) {
+            const isLocal = player.odplayerId === localId;
+            if (!isLocal) {
+              this.leaderboardHUD.updatePlayer(
+                player.odplayerId,
+                player.odplayerName,
+                player.score,
+                false
+              );
+              
+              // Track ghost score (highest opponent)
+              if (player.score > this.ghostScore && player.status !== 'left') {
+                this.ghostScore = player.score;
+                this.ghostPlayerName = player.odplayerName;
+              }
+            }
+            
+            // Show "LEFT" status for players who quit
+            if (player.status === 'left') {
+              this.leaderboardHUD.markPlayerLeft(player.odplayerId);
+            }
+          }
+          
+          // Update local score on leaderboard
+          const localScore = stateManager.getState().game.score;
+          this.leaderboardHUD.updatePlayer(
+            state.player.id,
+            state.player.name,
+            localScore,
+            true
+          );
+          
+          // Calculate score delta
+          if (this.ghostScore > 0) {
+            const maxScore = Math.max(localScore, this.ghostScore, 1);
+            const delta = (localScore - this.ghostScore) / maxScore;
+            stateManager.updateGame({ ghostDelta: delta });
+            this.momentumBar.setValue(50 + (delta * 50));
+            this.updateCatchupMultiplier();
+          }
+        },
+        (leftPlayer) => {
+          // A player left — mark them on leaderboard
+          this.leaderboardHUD.markPlayerLeft(leftPlayer.odplayerId);
+          this.floatingTexts.push(FloatingText.createMessage(
+            this.canvas.element.width / 2,
+            this.canvas.element.height / 2 - 100,
+            leftPlayer.odplayerName + ' LEFT',
+            '#ef4444'
+          ));
+        }
+      );
+    } else {
+      // Fallback to old GroupManager localStorage sync
+      this.groupManager.startScoreSync(
+        state.player.id,
+        state.player.name,
+        state.ui.currentGroupId,
+        (opponentScore: number, opponentName: string) => {
+          this.handleOpponentScoreUpdate(opponentScore, opponentName);
+        },
+        () => {
+          this.handleOpponentDisconnect();
+        }
+      );
+    }
     
     console.log('[GamePage] Multiplayer score sync started');
   }
@@ -2460,7 +2541,12 @@ export class GamePage extends BasePage {
    */
   private stopMultiplayerSync(): void {
     if (this.multiplayerSyncActive) {
-      this.groupManager.stopScoreSync();
+      if (this.roomManager) {
+        this.roomManager.cleanup();
+        this.roomManager = null;
+      } else {
+        this.groupManager.stopScoreSync();
+      }
       this.multiplayerSyncActive = false;
     }
   }

@@ -88,6 +88,9 @@ export class StateManager {
         players: [],
         isInLobby: false,
         localPlayerReady: false,
+        localPlayerId: null,
+        localPlayerName: null,
+        isHost: false,
       },
     };
   }

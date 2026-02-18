@@ -22,6 +22,8 @@ export interface LeaderboardPlayer {
   isCurrentPlayer?: boolean;
   previousRank?: number;
   scoreChange?: number; // For momentum tracking
+  hasLeft?: boolean; // Player quit mid-game
+  hasFinished?: boolean; // Player completed their game
 }
 
 export class LeaderboardHUD {
@@ -112,6 +114,28 @@ export class LeaderboardHUD {
     }
 
     this.render();
+  }
+
+  /**
+   * Mark a player as having left the game
+   */
+  public markPlayerLeft(userId: string): void {
+    const player = this.players.get(userId);
+    if (player) {
+      player.hasLeft = true;
+      this.render();
+    }
+  }
+
+  /**
+   * Mark a player as having finished their game
+   */
+  public markPlayerFinished(userId: string): void {
+    const player = this.players.get(userId);
+    if (player) {
+      player.hasFinished = true;
+      this.render();
+    }
   }
 
   /**
@@ -290,7 +314,19 @@ export class LeaderboardHUD {
       entry.appendChild(rankBadge);
       entry.appendChild(playerInfo);
     }
-
+    // Status badge for left/finished players
+    if (player.hasLeft) {
+      const leftBadge = document.createElement('div');
+      leftBadge.className = 'flex-shrink-0 px-2 py-1 rounded-md text-xs font-bold bg-red-500/20 text-red-400';
+      leftBadge.textContent = 'LEFT';
+      entry.appendChild(leftBadge);
+      entry.style.opacity = '0.6';
+    } else if (player.hasFinished) {
+      const finBadge = document.createElement('div');
+      finBadge.className = 'flex-shrink-0 px-2 py-1 rounded-md text-xs font-bold bg-blue-500/20 text-blue-400';
+      finBadge.textContent = 'DONE';
+      entry.appendChild(finBadge);
+    }
     return entry;
   }
 

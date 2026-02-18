@@ -2,10 +2,9 @@
  * GroupManager - Appwrite-backed group/room system
  */
 
-import { databases, client } from '@lib/appwrite';
+import { databases } from '@lib/appwrite';
 import { ID, Query } from 'appwrite';
 import type { Group, GroupScore, LobbyPlayer } from '../types/game';
-import type { RealtimeResponseEvent } from 'appwrite';
 
 interface LiveScore {
   userId: string;
@@ -403,7 +402,8 @@ export class GroupManager {
     if (!this.currentGroupId || !this.currentUserId || !this.scoreSyncCallback) return;
     
     const prefix = `score_${this.currentGroupId}_`;
-    const keys = Object.keys(localStorage).filter(k => k.startsWith(prefix) && !k.endsWith(this.currentUserId));
+    const uid = this.currentUserId!;
+    const keys = Object.keys(localStorage).filter(k => k.startsWith(prefix) && !k.endsWith(uid));
     
     let updated = false;
     for (const key of keys) {

@@ -40,6 +40,7 @@ export interface GamePlayState {
   momentumValue?: number;
   ghostDelta?: number;
   activeMutators?: string[];
+  timerScoreMultiplier?: number;
 }
 
 export interface UIState {
@@ -95,12 +96,42 @@ export interface LobbyPlayer {
   isHost: boolean;
 }
 
+// Room-based multiplayer types
+export type RoomStatus = 'waiting' | 'playing' | 'finished';
+export type RoomPlayerStatus = 'waiting' | 'ready' | 'playing' | 'left' | 'finished';
+
+export interface Room {
+  $id: string;
+  roomCode: string;
+  hostId: string;
+  hostName: string;
+  status: RoomStatus;
+  maxPlayers: number;
+  playerCount: number;
+  createdAt: string;
+  difficulty?: string;
+}
+
+export interface RoomPlayer {
+  $id: string;
+  roomId: string;
+  odplayerName: string;
+  odplayerId: string;
+  score: number;
+  status: RoomPlayerStatus;
+  isHost: boolean;
+  joinedAt: string;
+}
+
 export interface MultiplayerLobbyState {
   roomId: string | null;
   roomCode: string | null;
   players: LobbyPlayer[];
   isInLobby: boolean;
   localPlayerReady: boolean;
+  localPlayerId: string | null;
+  localPlayerName: string | null;
+  isHost: boolean;
 }
 
 export interface GameState {

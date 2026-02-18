@@ -9,11 +9,17 @@ import { stateManager } from '@core/StateManager';
 import { ROUTES } from '@core/constants';
 import { DifficultyLevel, difficultyConfigs, difficultyOrder } from '@config/difficulty';
 import { Button } from '@ui/components/Button';
+import { RoomManager } from '@network/RoomManager';
 
 export class DifficultyPage extends BasePage {
   private selectedDifficulty: DifficultyLevel = DifficultyLevel.STANDARD;
   private difficultyCards: HTMLElement[] = [];
   private buttons: Button[] = [];
+  private roomManager: RoomManager | null = null;
+  private isMultiplayer = false;
+  private isHost = false;
+  private difficultySubscription: (() => void) | null = null;
+  private waitingMessage: HTMLElement | null = null;
 
   public render(): void {
     const container = this.initPageLayout({
@@ -28,12 +34,55 @@ export class DifficultyPage extends BasePage {
     backBtn.style.marginBottom = '1rem';
     container.appendChild(backBtn);
 
-  // Reset cards array
-  this.difficultyCards = [];
+    // Check if we're in multiplayer mode
+    const state = stateManager.getState();
+    this.isMultiplayer = state.ui.currentGameMode?.startsWith('multiplayer') ?? false;
+    this.isHost = state.multiplayer.isHost;
+    
+    // Get roomManager reference from window if in multiplayer
+    if (this.isMultiplayer) {
+      this.roomManager = (window as any).__hexi_roomManager as RoomManager | null;
+    }
 
-  // Header
-    const header = this.createHeader('SELECT DIFFICULTY', 'Choose your challenge');
+    // Reset cards array
+    this.difficultyCards = [];
+
+    // Header
+    const headerText = this.isMultiplayer && !this.isHost 
+      ? 'WAITING FOR HOST' 
+      : 'SELECT DIFFICULTY';
+    const headerSubtext = this.isMultiplayer && !this.isHost 
+      ? 'The host is selecting the difficulty' 
+      : 'Choose your challenge';
+    const header = this.createHeader(headerText, headerSubtext);
     container.appendChild(header);
+
+    // If non-host in multiplayer, show waiting message instead of cards
+    if (this.isMultiplayer && !this.isHost) {
+      this.waitingMessage = document.createElement('div');
+      this.waitingMessage.className = 'theme-card rounded-2xl p-8 text-center space-y-4';
+      
+      const spinner = document.createElement('div');
+      spinner.className = 'flex justify-center';
+      spinner.innerHTML = `
+        <div class="animate-spin rounded-full h-16 w-16 border-4 border-cyan-500 border-t-transparent"></div>
+      `;
+      this.waitingMessage.appendChild(spinner);
+      
+      const message = document.createElement('p');
+      message.className = 'text-lg theme-text font-semibold';
+      message.textContent = 'Waiting for host to select difficulty...';
+      this.waitingMessage.appendChild(message);
+      
+      const tip = document.createElement('p');
+      tip.className = 'text-sm theme-text-secondary';
+      tip.textContent = 'You\'ll be redirected automatically when ready';
+      this.waitingMessage.appendChild(tip);
+      
+      container.appendChild(this.waitingMessage);
+      this.mount();
+      return;
+    }
 
     // Difficulty cards grid with better spacing
     const cardsGrid = document.createElement('div');
@@ -54,7 +103,8 @@ export class DifficultyPage extends BasePage {
     const startButtonContainer = document.createElement('div');
     startButtonContainer.className = 'mt-4 sm:mt-6 w-full max-w-sm px-0 sm:px-2 mb-6';
 
-    const startButton = new Button('START GAME', {
+    const buttonText = this.isMultiplayer && this.isHost ? 'START MATCH' : 'START GAME';
+    const startButton = new Button(buttonText, {
       variant: 'primary',
       size: 'large',
       fullWidth: true,
@@ -224,9 +274,18 @@ export class DifficultyPage extends BasePage {
   /**
    * Start game with selected difficulty
    */
-  private startGame(): void {
+  private async startGame(): Promise<void> {
     // Update game state with selected difficulty
     stateManager.updateGame({ difficulty: this.selectedDifficulty });
+    
+    // If in multiplayer and we're the host, save difficulty to room
+    if (this.isMultiplayer && this.isHost && this.roomManager) {
+      try {
+        await this.roomManager.setDifficulty(this.selectedDifficulty);
+      } catch (err) {
+        console.error('Failed to set difficulty in room:', err);
+      }
+    }
     
     // Navigate to game page
     Router.getInstance().navigate(ROUTES.GAME, { difficulty: this.selectedDifficulty });
@@ -234,12 +293,59 @@ export class DifficultyPage extends BasePage {
 
   public onMount(): void {
     this.element.classList.add('animate-fade-in');
+    
+    // If non-host in multiplayer, subscribe to room changes
+    if (this.isMultiplayer && !this.isHost && this.roomManager) {
+      this.subscribeToDifficultyChanges();
+    }
   }
 
   public onUnmount(): void {
     this.difficultyCards = [];
     this.buttons.forEach((btn) => btn.destroy());
     this.buttons = [];
+    
+    // Unsubscribe from difficulty changes
+    if (this.difficultySubscription) {
+      this.difficultySubscription();
+      this.difficultySubscription = null;
+    }
+  }
+
+  /**
+   * Subscribe to difficulty changes (for non-host players)
+   */
+  private subscribeToDifficultyChanges(): void {
+    if (!this.roomManager) return;
+    
+    const roomId = this.roomManager.getRoomId();
+    if (!roomId) return;
+
+    // Import appwrite client dynamically
+    import('@network/AppwriteClient').then(({ appwriteClient }) => {
+      import('@lib/appwrite').then(({ client }) => {
+        import('@/config').then(({ appwriteConfig }) => {
+          const DB = appwriteConfig.databaseId;
+          const ROOMS_COL = appwriteConfig.roomsCollectionId;
+          
+          // Subscribe to room document changes
+          const unsubscribe = client.subscribe(
+            `databases.${DB}.collections.${ROOMS_COL}.documents.${roomId}`,
+            (response) => {
+              const payload = response.payload as any;
+              if (payload.difficulty) {
+                // Host has selected difficulty, navigate to game
+                const difficulty = payload.difficulty as DifficultyLevel;
+                stateManager.updateGame({ difficulty });
+                Router.getInstance().navigate(ROUTES.GAME, { difficulty });
+              }
+            },
+          );
+          
+          this.difficultySubscription = unsubscribe;
+        });
+      });
+    });
   }
 }
 
