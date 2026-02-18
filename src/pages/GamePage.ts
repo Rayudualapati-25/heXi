@@ -1179,7 +1179,7 @@ export class GamePage extends BasePage {
     
     // Mark as "left" if multiplayer game is in progress
     if (this.multiplayerSyncActive && this.roomManager) {
-      void this.roomManager.leaveRoom();
+      this.roomManager.leaveRoom();
     }
     
     this.gameLoop.stop();
@@ -2029,7 +2029,7 @@ export class GamePage extends BasePage {
     if (groupId && state.player.id) {
       // Mark player as finished in room
       if (this.roomManager) {
-        void this.roomManager.finishGame(state.game.score);
+        this.roomManager.finishGame(state.game.score);
       }
       void this.groupManager.recordGroupScore(
         state.player.id,
@@ -2327,7 +2327,7 @@ export class GamePage extends BasePage {
       // Emit score to multiplayer session
       if (this.multiplayerSyncActive) {
         if (this.roomManager) {
-          void this.roomManager.emitScore(score);
+          this.roomManager.emitScore(score);
         } else {
           this.groupManager.emitScore(score);
         }
@@ -2396,31 +2396,26 @@ export class GamePage extends BasePage {
     this.roomManager = (window as any).__hexi_roomManager as RoomManager | null;
     
     if (this.roomManager) {
-      // Subscribe to real-time score updates via Appwrite Realtime
+      // Subscribe to real-time score updates via Socket.io
       this.roomManager.subscribeScoreUpdates(
-        (players) => {
-          // Update leaderboard with all players' scores
+        (scores) => {
+          // scores is ScoreEntry[]: { playerId, name, score }[]
           const localId = this.roomManager!.getLocalId();
-          for (const player of players) {
-            const isLocal = player.odplayerId === localId;
+          for (const entry of scores) {
+            const isLocal = entry.playerId === localId;
             if (!isLocal) {
               this.leaderboardHUD.updatePlayer(
-                player.odplayerId,
-                player.odplayerName,
-                player.score,
+                entry.playerId,
+                entry.name,
+                entry.score,
                 false
               );
               
               // Track ghost score (highest opponent)
-              if (player.score > this.ghostScore && player.status !== 'left') {
-                this.ghostScore = player.score;
-                this.ghostPlayerName = player.odplayerName;
+              if (entry.score > this.ghostScore) {
+                this.ghostScore = entry.score;
+                this.ghostPlayerName = entry.name;
               }
-            }
-            
-            // Show "LEFT" status for players who quit
-            if (player.status === 'left') {
-              this.leaderboardHUD.markPlayerLeft(player.odplayerId);
             }
           }
           
@@ -2444,11 +2439,11 @@ export class GamePage extends BasePage {
         },
         (leftPlayer) => {
           // A player left — mark them on leaderboard
-          this.leaderboardHUD.markPlayerLeft(leftPlayer.odplayerId);
+          this.leaderboardHUD.markPlayerLeft(leftPlayer.playerId);
           this.floatingTexts.push(FloatingText.createMessage(
             this.canvas.element.width / 2,
             this.canvas.element.height / 2 - 100,
-            leftPlayer.odplayerName + ' LEFT',
+            leftPlayer.name + ' LEFT',
             '#ef4444'
           ));
         }

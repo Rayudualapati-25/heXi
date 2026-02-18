@@ -17,7 +17,7 @@ import { Router } from '@/router';
 import { stateManager } from '@core/StateManager';
 import { ROUTES } from '@core/constants';
 import { RoomManager } from '@network/RoomManager';
-import type { RoomPlayer, LobbyPlayer } from '../types/game';
+import type { LobbyPlayer } from '../types/game';
 
 type View = 'home' | 'create' | 'join';
 
@@ -177,12 +177,12 @@ export class MultiplayerPage extends BasePage {
         createBtn.element.setAttribute('disabled', 'true');
 
         try {
-          const { room, roomCode } = await this.roomManager.createRoom(name);
+          const { roomCode } = await this.roomManager.createRoom(name);
 
           console.log('[MultiplayerPage] Room created successfully:', roomCode);
 
           stateManager.updateMultiplayer({
-            roomId: room.$id,
+            roomId: this.roomManager.getRoomId(),
             roomCode,
             localPlayerId: this.roomManager.getLocalId(),
             localPlayerName: name,
@@ -272,13 +272,13 @@ export class MultiplayerPage extends BasePage {
         joinBtn.element.setAttribute('disabled', 'true');
 
         try {
-          const { room } = await this.roomManager.joinRoom(code, name);
+          const { roomCode } = await this.roomManager.joinRoom(code, name);
 
-          console.log('[MultiplayerPage] Joined room successfully:', code);
+          console.log('[MultiplayerPage] Joined room successfully:', roomCode);
 
           stateManager.updateMultiplayer({
-            roomId: room.$id,
-            roomCode: code,
+            roomId: this.roomManager.getRoomId(),
+            roomCode,
             localPlayerId: this.roomManager.getLocalId(),
             localPlayerName: name,
             isInLobby: true,
@@ -337,7 +337,7 @@ export class MultiplayerPage extends BasePage {
     this.lobbyModal.open();
 
     this.roomManager.subscribeLobby(
-      (roomPlayers: RoomPlayer[]) => this.handleLobbyUpdate(roomPlayers),
+      (lobbyPlayers: LobbyPlayer[]) => this.handleLobbyUpdate(lobbyPlayers),
       () => this.handleMatchStarted(),
     );
   }
@@ -346,15 +346,7 @@ export class MultiplayerPage extends BasePage {
     try {
       const isReady = await this.roomManager.toggleReady();
       stateManager.updateMultiplayer({ localPlayerReady: isReady });
-
-      const roomId = this.roomManager.getRoomId();
-      if (roomId) {
-        const players = await this.roomManager.fetchRoomPlayers(roomId);
-        const lobbyPlayers = this.roomManager.toLobbyPlayers(players);
-        if (this.lobbyModal) {
-          this.lobbyModal.update(lobbyPlayers, isReady);
-        }
-      }
+      // Lobby modal will be updated via the lobby:update socket event
     } catch (err: any) {
       console.error('Failed to toggle ready:', err);
     }
@@ -368,8 +360,7 @@ export class MultiplayerPage extends BasePage {
     }
   }
 
-  private handleLobbyUpdate(roomPlayers: RoomPlayer[]): void {
-    const lobbyPlayers = this.roomManager.toLobbyPlayers(roomPlayers);
+  private handleLobbyUpdate(lobbyPlayers: LobbyPlayer[]): void {
     const localReady = stateManager.getState().multiplayer.localPlayerReady;
 
     stateManager.updateMultiplayer({ players: lobbyPlayers });
@@ -398,7 +389,7 @@ export class MultiplayerPage extends BasePage {
   }
 
   private async handleLeaveLobby(): Promise<void> {
-    await this.roomManager.leaveRoom();
+    this.roomManager.leaveRoom();
 
     stateManager.updateMultiplayer({
       roomId: null,

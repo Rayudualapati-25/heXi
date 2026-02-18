@@ -1,642 +1,197 @@
 /**
- * RoomManager - Appwrite Realtime room-based multiplayer
- * 
- * Flow:
- * 1. Host creates a room → gets a 6-char room code
- * 2. Other players join with room code + their display name
- * 3. All players see each other in the lobby via Appwrite Realtime
- * 4. Host starts the match when everyone is ready
- * 5. During gameplay, scores sync via Appwrite document updates + Realtime
- * 6. If a player quits, their status is set to 'left' and shown in the leaderboard
+ * RoomManager — Socket.io-based multiplayer room management
+ *
+ * All real-time communication now goes through the Socket.io server.
+ * Appwrite is kept only for persisting final scores to the leaderboard.
  */
 
-import { databases, client, ensureSession } from '@lib/appwrite';
-import { ID, Query } from 'appwrite';
-import { appwriteConfig } from '@/config';
-import type { Room, RoomPlayer, RoomPlayerStatus, LobbyPlayer } from '../types/game';
+import { socketManager } from './SocketManager';
+import type { SocketRoom, SocketPlayer, ScoreEntry, GameResult } from './SocketManager';
+import type { LobbyPlayer } from '../types/game';
 
-export type LobbyUpdateCallback = (players: RoomPlayer[]) => void;
-export type MatchStartCallback = () => void;
-export type ScoreUpdateCallback = (players: RoomPlayer[]) => void;
-export type PlayerLeftCallback = (player: RoomPlayer) => void;
+export type LobbyUpdateCallback  = (players: LobbyPlayer[]) => void;
+export type MatchStartCallback   = () => void;
+export type ScoreUpdateCallback  = (entries: ScoreEntry[]) => void;
+export type PlayerLeftCallback   = (data: { playerId: string; name: string }) => void;
+export type GameResultsCallback  = (results: GameResult[]) => void;
 
-const DB = appwriteConfig.databaseId;
-const ROOMS_COL = appwriteConfig.roomsCollectionId;
-const PLAYERS_COL = appwriteConfig.roomPlayersCollectionId;
+// Re-export for consumers
+export type { SocketRoom, SocketPlayer, ScoreEntry, GameResult };
+
+// ────────────────────────────────────────────────────────────────────────────
+// STUB types kept so the old RoomPlayer references in game.d.ts still compile.
+// They are no longer used at runtime.
+// ────────────────────────────────────────────────────────────────────────────
 
 export class RoomManager {
-  private currentRoomId: string | null = null;
-  private currentPlayerId: string | null = null; // document $id in room-players
-  private localId: string | null = null; // generated unique id for this session
-
-  // Realtime unsubscribe handles
-  private unsubRoom: (() => void) | null = null;
-  private unsubPlayers: (() => void) | null = null;
-
-  // Callbacks
-  private lobbyUpdateCb: LobbyUpdateCallback | null = null;
-  private matchStartCb: MatchStartCallback | null = null;
-  private scoreUpdateCb: ScoreUpdateCallback | null = null;
-  private playerLeftCb: PlayerLeftCallback | null = null;
-
-  // Heartbeat
-  private heartbeatInterval: number | null = null;
+  private roomId: string | null = null;
+  private roomCode: string | null = null;
+  private localId: string | null = null;
+  private localName: string | null = null;
+  private isHostFlag = false;
+  private currentRoom: SocketRoom | null = null;
 
   // Score emit throttle
   private lastScoreEmitMs = 0;
-  private scoreEmitThrottleMs = 800;
+  private readonly scoreEmitThrottleMs = 500;
 
-  /**
-   * Generate a random 6-char room code
-   */
-  private generateRoomCode(): string {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // No ambiguous chars (0/O, 1/I)
-    let code = '';
-    const array = new Uint8Array(6);
-    crypto.getRandomValues(array);
-    for (let i = 0; i < 6; i++) {
-      code += chars[array[i] % chars.length];
-    }
-    return code;
-  }
+  // ── CONNECTION ──────────────────────────────────────────────
 
-  /**
-   * Generate a unique local player ID for this session
-   */
-  private generateLocalId(): string {
-    return 'p_' + crypto.randomUUID().slice(0, 12);
-  }
-
-  // ─── ROOM CREATION & JOINING ────────────────────────────────────
-
-  /**
-   * Create a new room (host)
-   */
-  async createRoom(hostName: string, maxPlayers: number = 8): Promise<{ room: Room; roomCode: string }> {
-    try {
-      await ensureSession();
-      const roomCode = this.generateRoomCode();
-      this.localId = this.generateLocalId();
-
-      console.log('[RoomManager] Creating room with code:', roomCode);
-
-      const roomDoc = await databases.createDocument(DB, ROOMS_COL, ID.unique(), {
-        roomCode,
-        hostId: this.localId,
-        hostName,
-        status: 'waiting',
-        maxPlayers,
-        playerCount: 1,
-      });
-
-      const room = roomDoc as unknown as Room;
-      this.currentRoomId = room.$id;
-
-      console.log('[RoomManager] Room created:', room.$id);
-
-      // Add host as first player
-      const playerDoc = await databases.createDocument(DB, PLAYERS_COL, ID.unique(), {
-        roomId: room.$id,
-        odplayerName: hostName,
-        odplayerId: this.localId,
-        score: 0,
-        status: 'waiting' as RoomPlayerStatus,
-        isHost: true,
-      });
-
-      this.currentPlayerId = playerDoc.$id;
-      console.log('[RoomManager] Host player created:', this.currentPlayerId);
-
-      return { room, roomCode };
-    } catch (error: any) {
-      console.error('[RoomManager] Error creating room:', error.message || error);
-      // Clean up if we created a room but failed to add player
-      if (this.currentRoomId) {
-        try {
-          await databases.deleteDocument(DB, ROOMS_COL, this.currentRoomId);
-        } catch {}
-      }
-      this.currentRoomId = null;
-      this.currentPlayerId = null;
-      this.localId = null;
-      throw error;
+  private ensureConnected(): void {
+    if (!socketManager.connected) {
+      socketManager.connect();
     }
   }
 
-  /**
-   * Join an existing room by code
-   */
-  async joinRoom(roomCode: string, playerName: string): Promise<{ room: Room; players: RoomPlayer[] }> {
-    try {
-      await ensureSession();
-      console.log('[RoomManager] Attempting to join room:', roomCode.toUpperCase());
-      
-      // Find room by code (case-insensitive)
-      const response = await databases.listDocuments(DB, ROOMS_COL, [
-        Query.equal('roomCode', roomCode.toUpperCase()),
-        Query.limit(10), // Get up to 10 matching codes
-      ]);
+  // ── ROOM CREATION & JOINING ─────────────────────────────────
 
-      console.log('[RoomManager] Found rooms:', response.documents.length);
+  async createRoom(hostName: string, maxPlayers = 8): Promise<{ roomCode: string }> {
+    this.ensureConnected();
+    this.localId = this.generateLocalId();
+    this.localName = hostName;
 
-      if (response.documents.length === 0) {
-        throw new Error('Room not found or game already started');
-      }
+    console.log('[RoomManager] Creating room as:', hostName);
+    const res = await socketManager.createRoom(this.localId, hostName, maxPlayers);
 
-      // Filter for waiting rooms
-      const waitingRooms = response.documents.filter(doc => doc.status === 'waiting');
-      
-      if (waitingRooms.length === 0) {
-        throw new Error('Room not found or game already started');
-      }
+    this.roomId   = res.roomId;
+    this.roomCode = res.roomCode;
+    this.isHostFlag = true;
+    this.currentRoom = res.room;
 
-      const room = waitingRooms[0] as unknown as Room;
-      console.log('[RoomManager] Found room:', room.$id, 'with', room.playerCount, 'players');
-
-      // Check player count
-      if (room.playerCount >= room.maxPlayers) {
-        throw new Error('Room is full');
-      }
-
-      this.localId = this.generateLocalId();
-      this.currentRoomId = room.$id;
-
-      console.log('[RoomManager] Adding player to room...');
-
-      // Add player to room
-      const playerDoc = await databases.createDocument(DB, PLAYERS_COL, ID.unique(), {
-        roomId: room.$id,
-        odplayerName: playerName,
-        odplayerId: this.localId,
-        score: 0,
-        status: 'waiting' as RoomPlayerStatus,
-        isHost: false,
-      });
-
-      this.currentPlayerId = playerDoc.$id;
-      console.log('[RoomManager] Player document created:', this.currentPlayerId);
-
-      // Update room player count
-      await databases.updateDocument(DB, ROOMS_COL, room.$id, {
-        playerCount: room.playerCount + 1,
-      });
-
-      console.log('[RoomManager] Room player count updated');
-
-      // Get all current players
-      const players = await this.fetchRoomPlayers(room.$id);
-      console.log('[RoomManager] Fetched', players.length, 'players');
-
-      return { room, players };
-    } catch (error: any) {
-      console.error('[RoomManager] Error joining room:', error.message || error);
-      // Clean up if we created a player doc but failed later
-      if (this.currentPlayerId) {
-        try {
-          await databases.deleteDocument(DB, PLAYERS_COL, this.currentPlayerId);
-        } catch {}
-      }
-      this.currentRoomId = null;
-      this.currentPlayerId = null;
-      this.localId = null;
-      throw error;
-    }
+    console.log('[RoomManager] Room created:', this.roomCode);
+    return { roomCode: res.roomCode };
   }
 
-  // ─── LOBBY ──────────────────────────────────────────────────────
+  async joinRoom(roomCode: string, playerName: string): Promise<{ roomCode: string }> {
+    this.ensureConnected();
+    this.localId   = this.generateLocalId();
+    this.localName = playerName;
 
-  /**
-   * Subscribe to lobby updates via Appwrite Realtime
-   */
+    console.log('[RoomManager] Joining room:', roomCode);
+    const res = await socketManager.joinRoom(roomCode.toUpperCase(), this.localId, playerName);
+
+    this.roomId   = res.roomId;
+    this.roomCode = res.roomCode;
+    this.isHostFlag = false;
+    this.currentRoom = res.room;
+
+    console.log('[RoomManager] Joined room:', this.roomCode);
+    return { roomCode: res.roomCode };
+  }
+
+  // ── LOBBY ───────────────────────────────────────────────────
+
   subscribeLobby(
     onLobbyUpdate: LobbyUpdateCallback,
     onMatchStart: MatchStartCallback,
   ): void {
-    if (!this.currentRoomId) {
-      console.error('[RoomManager] Cannot subscribe: no active room');
-      return;
-    }
+    console.log('[RoomManager] Subscribing to lobby');
 
-    this.lobbyUpdateCb = onLobbyUpdate;
-    this.matchStartCb = onMatchStart;
+    socketManager.setLobbyUpdateCallback((room: SocketRoom) => {
+      this.currentRoom = room;
+      onLobbyUpdate(this.toLobbyPlayers(room.players));
+    });
 
-    const roomId = this.currentRoomId;
-
-    console.log('[RoomManager] Subscribing to lobby updates for room:', roomId);
-
-    // Subscribe to room-players collection changes for this room
-    this.unsubPlayers = client.subscribe(
-      `databases.${DB}.collections.${PLAYERS_COL}.documents`,
-      (response) => {
-        console.log('[RoomManager] Received player update:', response.events);
-        const payload = response.payload as any;
-        // Only react to players in our room
-        if (payload.roomId !== roomId) {
-          console.log('[RoomManager] Ignoring update for different room');
-          return;
-        }
-
-        // Re-fetch all players for consistency
-        void this.fetchRoomPlayers(roomId).then((players) => {
-          console.log('[RoomManager] Fetched updated players:', players.length);
-          if (this.lobbyUpdateCb) this.lobbyUpdateCb(players);
-        }).catch(err => {
-          console.error('[RoomManager] Error fetching players:', err);
-        });
-      },
-    );
-
-    // Subscribe to room document changes (for status change to 'playing')
-    this.unsubRoom = client.subscribe(
-      `databases.${DB}.collections.${ROOMS_COL}.documents.${roomId}`,
-      (response) => {
-        console.log('[RoomManager] Received room update:', response.events);
-        const payload = response.payload as any;
-        if (payload.status === 'playing') {
-          console.log('[RoomManager] Match starting!');
-          if (this.matchStartCb) {
-            this.matchStartCb();
-          }
-        }
-      },
-    );
-
-    console.log('[RoomManager] Subscriptions active');
+    socketManager.setMatchStartedCallback(() => {
+      console.log('[RoomManager] Match started!');
+      onMatchStart();
+    });
   }
 
-  /**
-   * Toggle ready status
-   */
   async toggleReady(): Promise<boolean> {
-    if (!this.currentPlayerId) {
-      console.error('[RoomManager] Cannot toggle ready: no player ID');
-      return false;
-    }
-
-    try {
-      console.log('[RoomManager] Toggling ready status...');
-      const doc = await databases.getDocument(DB, PLAYERS_COL, this.currentPlayerId);
-      const currentStatus = doc.status as RoomPlayerStatus;
-      const newStatus: RoomPlayerStatus = currentStatus === 'ready' ? 'waiting' : 'ready';
-
-      await databases.updateDocument(DB, PLAYERS_COL, this.currentPlayerId, {
-        status: newStatus,
-      });
-
-      console.log('[RoomManager] Ready status updated to:', newStatus);
-      return newStatus === 'ready';
-    } catch (error: any) {
-      console.error('[RoomManager] Error toggling ready:', error.message || error);
-      throw error;
-    }
+    console.log('[RoomManager] Toggling ready');
+    const { isReady } = await socketManager.toggleReady();
+    return isReady;
   }
 
-  /**
-   * Start the match (host only) — sets room status to 'playing' and all player statuses
-   */
   async startMatch(): Promise<void> {
-    if (!this.currentRoomId || !this.localId) {
-      console.error('[RoomManager] Cannot start match: missing room or player ID');
-      return;
-    }
-
-    try {
-      console.log('[RoomManager] Starting match...');
-      
-      // Verify we are host
-      const room = await databases.getDocument(DB, ROOMS_COL, this.currentRoomId);
-      if (room.hostId !== this.localId) {
-        throw new Error('Only the host can start the match');
-      }
-
-      // Check all non-host players are ready
-      const players = await this.fetchRoomPlayers(this.currentRoomId);
-      console.log('[RoomManager] Found players:', players.map(p => ({ name: p.odplayerName, status: p.status, isHost: p.isHost })));
-      
-      const allReady = players.every((p) => p.isHost || p.status === 'ready');
-      if (!allReady) {
-        throw new Error('Not all players are ready');
-      }
-
-      console.log('[RoomManager] All players ready, setting status to playing...');
-
-      // Set all players to 'playing'
-      for (const player of players) {
-        await databases.updateDocument(DB, PLAYERS_COL, player.$id, {
-          status: 'playing' as RoomPlayerStatus,
-          score: 0,
-        });
-      }
-
-      console.log('[RoomManager] All player statuses updated');
-
-      // Set room status to 'playing' — triggers realtime event for all subscribers
-      await databases.updateDocument(DB, ROOMS_COL, this.currentRoomId, {
-        status: 'playing',
-      });
-
-      console.log('[RoomManager] Room status updated to playing');
-    } catch (error: any) {
-      console.error('[RoomManager] Error starting match:', error.message || error);
-      throw error;
-    }
+    console.log('[RoomManager] Starting match');
+    await socketManager.startMatch();
   }
 
-  // ─── GAMEPLAY SCORE SYNC ───────────────────────────────────────
+  // ── DIFFICULTY ──────────────────────────────────────────────
 
-  /**
-   * Subscribe to real-time score updates during gameplay
-   */
+  async setDifficulty(difficulty: string): Promise<void> {
+    console.log('[RoomManager] Setting difficulty:', difficulty);
+    await socketManager.setDifficulty(difficulty);
+  }
+
+  getDifficulty(): string | null {
+    return this.currentRoom?.difficulty ?? null;
+  }
+
+  subscribeToDifficulty(cb: (difficulty: string) => void): void {
+    socketManager.setDifficultyCallback(cb);
+  }
+
+  // ── SCORE SYNC ──────────────────────────────────────────────
+
   subscribeScoreUpdates(
     onScoreUpdate: ScoreUpdateCallback,
     onPlayerLeft: PlayerLeftCallback,
+    onGameResults?: GameResultsCallback,
   ): void {
-    if (!this.currentRoomId) return;
-
-    this.scoreUpdateCb = onScoreUpdate;
-    this.playerLeftCb = onPlayerLeft;
-
-    const roomId = this.currentRoomId;
-
-    // Unsubscribe old lobby subscription (replace with score-focused one)
-    this.unsubscribeAll();
-
-    this.unsubPlayers = client.subscribe(
-      `databases.${DB}.collections.${PLAYERS_COL}.documents`,
-      (response) => {
-        const payload = response.payload as any;
-        if (payload.roomId !== roomId) return;
-
-        // Check if a player left
-        if (payload.status === 'left' && this.playerLeftCb) {
-          this.playerLeftCb(payload as unknown as RoomPlayer);
-        }
-
-        // Re-fetch all players and emit scores
-        void this.fetchRoomPlayers(roomId).then((players) => {
-          if (this.scoreUpdateCb) this.scoreUpdateCb(players);
-        });
-      },
-    );
-
-    // Start heartbeat to detect disconnects
-    this.startHeartbeat();
+    socketManager.setScoreUpdateCallback(onScoreUpdate);
+    socketManager.setPlayerLeftCallback(onPlayerLeft);
+    if (onGameResults) {
+      socketManager.setGameResultsCallback(onGameResults);
+    }
   }
 
-  /**
-   * Emit local score update (throttled)
-   */
-  async emitScore(score: number): Promise<void> {
-    if (!this.currentPlayerId) return;
-
+  emitScore(score: number): void {
     const now = Date.now();
     if (now - this.lastScoreEmitMs < this.scoreEmitThrottleMs) return;
     this.lastScoreEmitMs = now;
-
-    try {
-      await databases.updateDocument(DB, PLAYERS_COL, this.currentPlayerId, {
-        score,
-      });
-    } catch {
-      // Silently fail — network hiccup, will retry on next emit
-    }
+    socketManager.emitScore(score);
   }
 
-  /**
-   * Mark local player as finished (game over)
-   */
-  async finishGame(finalScore: number): Promise<void> {
-    if (!this.currentPlayerId) return;
-
-    try {
-      await databases.updateDocument(DB, PLAYERS_COL, this.currentPlayerId, {
-        score: finalScore,
-        status: 'finished' as RoomPlayerStatus,
-      });
-    } catch {
-      // Silently fail
-    }
+  finishGame(finalScore: number): void {
+    socketManager.emitGameOver(finalScore);
   }
 
-  /**
-   * Mark local player as left (quit mid-game)
-   */
-  async leaveRoom(): Promise<void> {
-    if (!this.currentPlayerId) return;
+  // ── LEAVE ───────────────────────────────────────────────────
 
-    try {
-      await databases.updateDocument(DB, PLAYERS_COL, this.currentPlayerId, {
-        status: 'left' as RoomPlayerStatus,
-      });
-    } catch {
-      // Silently fail
-    }
-
-    // If we are host and room is waiting, clean up
-    if (this.currentRoomId) {
-      try {
-        const room = await databases.getDocument(DB, ROOMS_COL, this.currentRoomId);
-        if (room.status === 'waiting' && room.hostId === this.localId) {
-          // Update room player count
-          const activePlayers = await this.fetchActivePlayers(this.currentRoomId);
-          if (activePlayers.length === 0) {
-            await databases.updateDocument(DB, ROOMS_COL, this.currentRoomId, {
-              status: 'finished',
-              playerCount: 0,
-            });
-          } else {
-            await databases.updateDocument(DB, ROOMS_COL, this.currentRoomId, {
-              playerCount: activePlayers.length,
-            });
-          }
-        }
-      } catch {
-        // Silently fail
-      }
-    }
-
+  leaveRoom(): void {
+    socketManager.leaveRoom();
     this.cleanup();
   }
 
-  // ─── QUERIES ────────────────────────────────────────────────────
+  // ── HELPERS ─────────────────────────────────────────────────
 
-  /**
-   * Fetch all players in a room
-   */
-  async fetchRoomPlayers(roomId: string): Promise<RoomPlayer[]> {
-    const response = await databases.listDocuments(DB, PLAYERS_COL, [
-      Query.equal('roomId', roomId),
-      Query.limit(20),
-    ]);
-
-    return response.documents as unknown as RoomPlayer[];
-  }
-
-  /**
-   * Fetch active (non-left) players
-   */
-  private async fetchActivePlayers(roomId: string): Promise<RoomPlayer[]> {
-    const response = await databases.listDocuments(DB, PLAYERS_COL, [
-      Query.equal('roomId', roomId),
-      Query.notEqual('status', 'left'),
-      Query.limit(20),
-    ]);
-
-    return response.documents as unknown as RoomPlayer[];
-  }
-
-  /**
-   * Get final game results for the room
-   */
-  async getGameResults(): Promise<RoomPlayer[]> {
-    if (!this.currentRoomId) return [];
-
-    return this.fetchRoomPlayers(this.currentRoomId);
-  }
-
-  // ─── HEARTBEAT ─────────────────────────────────────────────────
-
-  /**
-   * Periodically touch our player doc to prove we are alive
-   */
-  private startHeartbeat(): void {
-    if (this.heartbeatInterval) return;
-
-    this.heartbeatInterval = window.setInterval(async () => {
-      if (!this.currentPlayerId) return;
-
-      try {
-        // Read our own doc to keep the connection alive
-        await databases.getDocument(DB, PLAYERS_COL, this.currentPlayerId);
-      } catch {
-        // Our doc was deleted or server unreachable
-      }
-    }, 15000);
-  }
-
-  // ─── HELPERS ────────────────────────────────────────────────────
-
-  /**
-   * Convert RoomPlayer[] to LobbyPlayer[] for UI compatibility
-   */
-  toLobbyPlayers(roomPlayers: RoomPlayer[]): LobbyPlayer[] {
-    return roomPlayers
-      .filter((p) => p.status !== 'left')
-      .map((p) => ({
-        userId: p.odplayerId,
-        userName: p.odplayerName,
-        isReady: p.status === 'ready' || p.isHost,
+  toLobbyPlayers(socketPlayers: SocketPlayer[]): LobbyPlayer[] {
+    return socketPlayers
+      .filter(p => p.status !== 'left')
+      .map(p => ({
+        userId: p.playerId,
+        userName: p.name,
+        isReady: p.isReady || p.isHost,
         isHost: p.isHost,
       }));
   }
 
-  /**
-   * Unsubscribe from all realtime channels
-   */
-  private unsubscribeAll(): void {
-    if (this.unsubRoom) {
-      this.unsubRoom();
-      this.unsubRoom = null;
-    }
-    if (this.unsubPlayers) {
-      this.unsubPlayers();
-      this.unsubPlayers = null;
-    }
+  private generateLocalId(): string {
+    return 'p_' + crypto.randomUUID().slice(0, 12);
   }
 
-  /**
-   * Full cleanup
-   */
   cleanup(): void {
-    this.unsubscribeAll();
-
-    if (this.heartbeatInterval) {
-      window.clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
-
-    this.currentRoomId = null;
-    this.currentPlayerId = null;
-    this.lobbyUpdateCb = null;
-    this.matchStartCb = null;
-    this.scoreUpdateCb = null;
-    this.playerLeftCb = null;
+    socketManager.clearCallbacks();
+    this.roomId   = null;
+    this.roomCode = null;
+    this.isHostFlag = false;
+    this.currentRoom = null;
     this.lastScoreEmitMs = 0;
   }
 
-  // ─── GETTERS ────────────────────────────────────────────────────
+  // ── GETTERS ─────────────────────────────────────────────────
 
-  getRoomId(): string | null {
-    return this.currentRoomId;
-  }
+  getRoomId(): string | null    { return this.roomId; }
+  getRoomCode(): string | null  { return this.roomCode; }
+  getLocalId(): string | null   { return this.localId; }
+  getLocalName(): string | null { return this.localName; }
+  isHost(): boolean             { return this.isHostFlag; }
+  getCurrentRoom(): SocketRoom | null { return this.currentRoom; }
 
-  getPlayerId(): string | null {
-    return this.currentPlayerId;
-  }
-
-  getLocalId(): string | null {
-    return this.localId;
-  }
-
-  // ─── DIFFICULTY SELECTION ───────────────────────────────────────
-
-  /**
-   * Set difficulty for the room (host only)
-   */
-  async setDifficulty(difficulty: string): Promise<void> {
-    if (!this.currentRoomId || !this.localId) {
-      console.error('[RoomManager] Cannot set difficulty: no room or player ID');
-      throw new Error('No active room');
-    }
-
-    try {
-      console.log('[RoomManager] Setting difficulty:', difficulty, 'for room:', this.currentRoomId);
-      
-      // Verify we are host
-      const room = await databases.getDocument(DB, ROOMS_COL, this.currentRoomId);
-      if (room.hostId !== this.localId) {
-        throw new Error('Only the host can set difficulty');
-      }
-
-      // Update room with difficulty
-      await databases.updateDocument(DB, ROOMS_COL, this.currentRoomId, {
-        difficulty,
-      });
-      
-      console.log('[RoomManager] Difficulty set successfully:', difficulty);
-    } catch (error: any) {
-      console.error('[RoomManager] Error setting difficulty:', error.message || error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get current room difficulty
-   */
-  async getDifficulty(): Promise<string | null> {
-    if (!this.currentRoomId) {
-      console.log('[RoomManager] No room ID when getting difficulty');
-      return null;
-    }
-
-    try {
-      const room = await databases.getDocument(DB, ROOMS_COL, this.currentRoomId);
-      const difficulty = (room as any).difficulty || null;
-      console.log('[RoomManager] Got difficulty from room:', difficulty);
-      return difficulty;
-    } catch (error: any) {
-      console.error('[RoomManager] Error getting difficulty:', error.message || error);
-      return null;
-    }
-  }
-
-  /**
-   * Check if local player is host
-   */
-  async isLocalPlayerHost(): Promise<boolean> {
-    if (!this.currentRoomId || !this.localId) return false;
-
-    const room = await databases.getDocument(DB, ROOMS_COL, this.currentRoomId);
-    return room.hostId === this.localId;
-  }
+  /** @deprecated kept for callers that use getLocalId() interchangeably */
+  getPlayerId(): string | null { return this.localId; }
 }
+
