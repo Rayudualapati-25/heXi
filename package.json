@@ -7,6 +7,8 @@
     "dev": "vite",
     "dev:server": "tsx watch server/index.ts",
     "dev:all": "concurrently --names \"API,VITE\" -c \"cyan,yellow\" \"tsx watch server/index.ts\" \"vite\"",
+    "build:server": "tsc -p server/tsconfig.json",
+    "start:server": "npx tsx server/index.ts",
     "build": "vite build",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
